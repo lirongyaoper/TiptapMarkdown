@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lry-editor — 开源多文稿编辑器 Demo</title>
+<link rel="stylesheet" href="../dist/lry-editor.css">
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 16px; color: #2b2f36; }
+h1 { font-size: 22px; } .sub { color: #8a919c; font-size: 13px; margin-bottom: 18px; }
+.banner { background: #f0f7ff; border: 1px solid #cfe5ff; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+#editor1 { }
+button.lang { float: right; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>lry-editor <button class="lang" onclick="location.href='index.en.html'">English demo</button></h1>
+<div class="sub">Tiptap 内核 · Markdown 双向分栏 · 画板(mermaid) · 折叠/分栏/任务列表 · 行柄菜单 · 斜杠面板 · AI 面板(适配器)</div>
+<div class="banner">本页 <b>零后端</b>:默认 <code>memory</code> 适配器(图片存 dataURI,AI 走演示 mock)。接真实后端见 README「适配器」一节 <code>LRYEditor.createUrlAdapter({...})</code>。</div>
+<div id="editor1"></div>
+<div style="margin-top:14px;font-size:12px;color:#8a919c">当前内容(实时):</div>
+<textarea id="out" style="width:100%;height:110px;margin-top:6px;font:12px/1.6 monospace;border:1px solid #dfe3ea;border-radius:8px;padding:8px" readonly></textarea>
+
+<script src="../dist/lry-editor.js"></script>
+<script>
+(function () {
+  var inst = LRYEditor.create({
+    mount: '#editor1',
+    textarea: 'demo_content',
+    height: 420,
+    value: '<h2>欢迎使用 lry-editor</h2>'
+      + '<p>这是开源版编辑器:左侧悬停任意行出现 <b>「+」行柄</b>,支持 31 项行操作;空行输入 <code>/</code> 唤起<b>斜杠面板</b>(47 张卡片);工具栏「MD」进入 <b>Markdown 双向分栏</b>。</p>'
+      + '<p>试试这些块:</p>'
+      + '<div class="lry-cols lry-cols-2"><div class="lry-col"><p>左栏布局</p></div><div class="lry-col"><p>右栏布局</p></div></div>'
+      + '<ul class="lry-task"><li class="lry-task-item lry-task-done"><span class="lry-task-check">☑</span><div class="lry-task-body"><p>已完成任务</p></div></li><li class="lry-task-item"><span class="lry-task-check">☐</span><div class="lry-task-body"><p>待办任务</p></div></li></ul>'
+      + '<blockquote class="lry-card lry-card-info"><p>高亮块:四色信息卡片</p></blockquote>'
+      + '<pre class="lry-mermaid">graph TD\nA[开始] --> B{条件?}\nB -->|是| C[处理]\nB -->|否| D[结束]</pre>'
+  });
+  var out = document.getElementById('out');
+  var sync = function () { out.value = inst.getContent(); };
+  inst.on('contentChange', sync);
+  sync();
+})();
+</script>
+</body>
+</html>

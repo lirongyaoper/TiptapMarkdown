@@ -1,0 +1,67 @@
+{
+  "name": "lry-editor",
+  "version": "1.0.0",
+  "description": "开源多文稿富文本编辑器 — Tiptap 内核,语雀式体验:Markdown 双向分栏、画板(mermaid)、折叠块、分栏布局、任务列表、代码块增强、行柄菜单、斜杠面板、AI 面板。零依赖引入,适配器可接任意后端。",
+  "main": "dist/lry-editor.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./dist/lry-editor.js"
+    },
+    "./dist/lry-editor.css": "./dist/lry-editor.css",
+    "./dist/lry-editor.js": "./dist/lry-editor.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "third-party",
+    "demo",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "test": "node test/os-test.mjs",
+    "demo": "node demo/_serve.mjs"
+  },
+  "keywords": [
+    "rich-text-editor",
+    "tiptap",
+    "markdown",
+    "mermaid",
+    "yuque",
+    "wysiwyg",
+    "editor",
+    "chinese"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^31.0.1",
+    "puppeteer-core": "^19",
+    "vite": "^6"
+  },
+  "peerDependencies": {
+    "@tiptap/core": ">=3"
+  },
+  "dependencies": {
+    "@tiptap/core": ">=3",
+    "@tiptap/extension-blockquote": "^3",
+    "@tiptap/extension-heading": "^3",
+    "@tiptap/extension-highlight": "^3",
+    "@tiptap/extension-image": "^3",
+    "@tiptap/extension-link": "^3",
+    "@tiptap/extension-list": "^3",
+    "@tiptap/extension-paragraph": "^3",
+    "@tiptap/extension-strike": "^3",
+    "@tiptap/extension-subscript": "^3",
+    "@tiptap/extension-superscript": "^3",
+    "@tiptap/extension-table": "^3",
+    "@tiptap/extension-text-style": "^3",
+    "@tiptap/extensions": "^3",
+    "@tiptap/pm": "^3",
+    "@tiptap/starter-kit": "^3",
+    "lowlight": "^3"
+  }
+}
