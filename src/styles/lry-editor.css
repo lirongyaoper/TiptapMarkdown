@@ -545,6 +545,23 @@ textarea.lry-input { resize: vertical; }
 .lry-editor.lry-md-mode .lry-row-handle:hover { opacity: 1; }
 .lry-editor .ProseMirror { padding-left: 30px; }
 .lry-editor.lry-md-mode .ProseMirror { padding-left: 30px; }
+/* 触屏/窄屏(≤1023):行柄不再负偏移外突(外突靠页面左 padding 摆放,
+   移动端页面 padding 小,+ 号会贴屏幕边缘点不到)——收回 ProseMirror 的
+   30px 左 padding 内;视觉 26px + ::before 外扩热区至 38px;触屏无
+   hover,降透明度常显保证可发现(hover/focus 变 1 的规则仍生效) */
+@media (max-width: 1023px) {
+  .lry-row-handle {
+    left: 4px;
+    transform: none;
+    width: 26px; height: 26px;
+    opacity: .5;
+  }
+  .lry-row-handle::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+}
 .lry-row-group {
   padding: 6px 12px 3px; font-size: 11px; font-weight: 700;
   color: #98a0ad; text-transform: uppercase; letter-spacing: .5px;

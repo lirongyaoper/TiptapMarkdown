@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1 (2026-11-17)
+
+修复 移动端行柄「+」不可点(同步自 lryper.com 站内版):
+
+- 根因:`left:2px + translateX(-26px)` 向左外突 23px 悬在编辑器容器外,依赖宿主页面的左 padding 摆放;移动端页面 padding 小时「+」贴屏幕边缘(实测 390px 视口下距屏幕仅 3px),叠加 22px 触摸目标与 `opacity:0` hover 显示(触屏无 hover),基本无法点击
+- 修复(≤1023px 触屏/窄屏):取消负偏移,收回 ProseMirror 的 30px 左 padding 内,不再依赖宿主布局;视觉 26px + `::before` 外扩热区至 38px;触屏降透明度(0.5)常显,hover/focus 变 1 的原规则仍生效
+- 桌面端(≥1024)形态零变化:外突 23px / 22px / hover 显示,均保持原样
+
 ## 1.1.0 (2026-11-16)
 
 新增 **lite 简约版**(留言/评论场景,同步自 lryper.com 站内版):

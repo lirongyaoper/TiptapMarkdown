@@ -147,6 +147,17 @@ npm run build:lite    # 产出 dist/lry-editor-lite.js(简约版)
 npm run watch         # 增量构建(full 版;lite 用 watch:lite)
 ```
 
-## 许可
+## 许可与署名
 
-MIT。内嵌运行时库(showdown / mermaid / KaTeX)均为 MIT,见 [LICENSE](LICENSE)。
+- MIT。内嵌运行时库(showdown / mermaid / KaTeX)均为 MIT,见 [LICENSE](LICENSE)。
+- **重要**：  如果你在与你相关的项目中使用该富文本插件，请你务必与我来信(contact@lirongyaoper.com)表示简单的感谢，以鼓励我继续本项目的更新及优化。
+
+---
+
+## 联系方式
+
+| 渠道 | 信息 |
+|---|---|
+| 作者 | 轩鸿青 |
+| 邮箱 | contact@lirongyaoper.com |
+| 个人网站/博客 | https://lirongyaoper.com |

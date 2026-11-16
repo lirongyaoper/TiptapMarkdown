@@ -124,4 +124,15 @@ npm run build:lite    # dist/lry-editor-lite.js (lite edition)
 
 ## License
 
-MIT. Bundled runtime libs (showdown / mermaid / KaTeX) are all MIT — see [LICENSE](LICENSE).
+- MIT. Bundled runtime libs (showdown / mermaid / KaTeX) are all MIT — see [LICENSE](LICENSE).
+- **Important**: If you use this rich text plugin in a project related to you, please be sure to write to me with a simple thank-you to encourage me to continue updating and optimizing this project(contact@lirongyaoper.com).
+
+---
+
+## Contact
+
+| Channel | Details |
+|---|---|
+| Author | 轩鸿青 |
+| Email | contact@lirongyaoper.com |
+| Website / Blog | https://lirongyaoper.com |
