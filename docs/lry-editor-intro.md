@@ -1,8 +1,8 @@
-# lry-editor：为「替换 UEditor」而生的开源富文本编辑器
+# TiptapMarkdown：为「替换 UEditor」而生的开源富文本编辑器
 
 > Tiptap v3 内核 · 语雀式体验 · 零后端假设 · 一行 `<script>` 接入任意表单
 
-**lry-editor** 是一款开源多文稿富文本编辑器（MIT 协议），源自 [lryper.com](https://lryper.com) 站内生产环境——历经 **9 轮迭代与全量安全审计**后，于 2026 年 11 月抽出开源。约 7000 行手写源码，无任何前端框架依赖。
+**TiptapMarkdown** 是一款开源多文稿富文本编辑器（MIT 协议），源自 [荣耀历程](https://lirongyaoper.com) 站内生产环境——历经 **9 轮迭代与全量安全审计**后，于 2026 年 11 月抽出开源。约 7000 行手写源码，无任何前端框架依赖。
 
 它解决的是一个被行业搁置多年的问题：**大量仍在生产运行的老系统（CMS、政企站、内部管理平台）还在使用 2016 年的 UEditor 1.4.3**——不再维护、不支持现代浏览器特性、移动端体验糟糕，但「换编辑器 = 内容迁移 + 前后端改造」的成本让所有人望而却步。lry-editor 把这个成本降到了**覆盖文件 + 删旧目录**。
 
@@ -154,9 +154,7 @@ npm 场景：`import { LRYEditorAPI } from 'lry-editor'`（ESM 源码直出）�
 
 ## 五、链接
 
-- 仓库：`<仓库地址>`
-- 在线演示：`<演示地址>`（demo/index.html 全功能 · demo/lite.html 简约版）
-- 适配器契约：[docs/adapter.md](adapter.md)
+- 仓库：`<git@github.com:lirongyaoper/TiptapMarkdown.git>`
 - 从 UEditor 迁移：发行包附带 YzmCMS 7.6 全站替换升级案例（含 UPGRADE.md）
 
 ---
