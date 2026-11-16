@@ -11,6 +11,8 @@
 - **工具栏**:89 按钮全量;PC 全显,移动端 3 行自适应 + 「更多」
 - **自动大纲/标题折叠、自动保存、格式刷、查找替换、全屏、多主题代码高亮**
 
+> 留言/评论场景请看 **[lite 简约版](#lite-简约版留言评论)**:纯文字排版、413KB 单文件,API 与 full 版同形。
+
 ## 快速开始(零后端)
 
 ```bash
@@ -97,13 +99,41 @@ LRYEditor.get('content')  // 按字段名取实例
 <pre class="brush:js;toolbar:false;">…</pre>                <!-- 代码块 -->
 ```
 
+## lite 简约版(留言/评论)
+
+面向**留言板、文章评论、帖子回复**等轻量输入场景的独立构建:`dist/lry-editor-lite.js`(**413KB / gzip 132KB**,full 版 623KB),全局对象 `window.LRYEditorLite`,与 full 版 **API 完全同形**(页面脚本零学习成本)。
+
+- **纯文字排版**:加粗/斜体/下划线/删除线/行内代码 · 链接(Ctrl+K)/取消链接 · 引用/有序/无序列表 · Unicode 表情 · 清除格式
+- **无**图片上传、表格、标题、代码块、画板、Markdown、AI —— 面越小越安全,服务端只需一个窄白名单过滤器
+- 字数上限(`maximumWords` 超限硬阻断)、placeholder、只读态、字数计数条
+- 表单同步与 full 版同策略:transaction 防抖 200ms 写回 + blur/submit 强制 flush;挂载在既有 `<textarea>` 上时隐藏域保留 name/id,页面既有校验逻辑天然兼容
+- 入口自带输入清洗(剥 `script`/`on*`/`javascript:`),服务端仍应做白名单过滤(纵深防御)
+
+```html
+<link rel="stylesheet" href="dist/lry-editor-lite.css">
+<div id="comment_editor"></div>
+<script src="dist/lry-editor-lite.js"></script>
+<script>
+  LRYEditorLite.create({
+    mount: '#comment_editor',
+    textarea: 'content',        // 表单字段名
+    maximumWords: 500,          // 字数上限(超限阻断 + 计数条)
+    height: 140,
+    placeholder: '请输入留言内容…'
+  });
+  // LRYEditorLite.get('content') → 同 full 版实例 API
+</script>
+```
+
+npm 场景:`import { LRYEditorLiteAPI } from 'lry-editor/lite'`。演示页:[demo/lite.html](demo/lite.html)。
+
 ## 目录结构
 
 ```
-├── src/            # ESM 源码(index.js 门面 + adapters.js 适配层)
-├── dist/           # 构建产物(lry-editor.js 单文件 IIFE + css)
+├── src/            # ESM 源码(index.js 门面 + adapters.js 适配层;lite.js 简约版入口)
+├── dist/           # 构建产物(lry-editor.js / lry-editor-lite.js 单文件 IIFE + css)
 ├── third-party/    # 运行时懒加载:showdown / mermaid / katex(均为 MIT)
-├── demo/           # 零后端全功能演示页
+├── demo/           # 零后端演示页(index.html 全功能 / lite.html 简约版)
 ├── test/           # jsdom 冒烟(node test/os-test.mjs)
 └── docs/           # 适配器/配置文档
 ```
@@ -112,8 +142,9 @@ LRYEditor.get('content')  // 按字段名取实例
 
 ```bash
 npm install
-npm run build     # 产出 dist/
-npm run watch     # 增量构建
+npm run build         # 产出 dist/lry-editor.js(full 版)
+npm run build:lite    # 产出 dist/lry-editor-lite.js(简约版)
+npm run watch         # 增量构建(full 版;lite 用 watch:lite)
 ```
 
 ## 许可

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lry-editor-lite — 留言/评论简约编辑器 Demo</title>
+<link rel="stylesheet" href="../dist/lry-editor-lite.css">
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; color: #2b2f36; }
+h1 { font-size: 22px; } .sub { color: #8a919c; font-size: 13px; margin-bottom: 18px; }
+.banner { background: #f0f7ff; border: 1px solid #cfe5ff; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+h4 { margin: 18px 0 8px; }
+#out { width: 100%; height: 84px; margin-top: 6px; font: 12px/1.6 monospace; border: 1px solid #dfe3ea; border-radius: 8px; padding: 8px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+<h1>lry-editor-lite</h1>
+<div class="sub">Tiptap 内核 · 纯文字排版 · 无图片/表格/标题 · 413KB 单文件(gzip 132KB) · API 与 full 版同形</div>
+<div class="banner">面向<b>留言板 / 评论 / 回复</b>等轻量输入场景。工具栏:撤销/重做 · 加粗/斜体/下划线/删除线/行内代码 · 链接(Ctrl+K) · 引用/列表 · Unicode 表情 · 清除格式;支持字数上限、placeholder、只读态。</div>
+
+<h4>基本实例(字数上限 200)</h4>
+<div id="editor1"></div>
+
+<h4>只读实例</h4>
+<div id="editor2"></div>
+
+<h4>当前内容(实时,基本实例)</h4>
+<textarea id="out" readonly></textarea>
+
+<script src="../dist/lry-editor-lite.js"></script>
+<script>
+(function () {
+  var inst = LRYEditorLite.create({
+    mount: '#editor1',
+    textarea: 'demo_lite_content',
+    maximumWords: 200,
+    height: 140,
+    placeholder: '说点什么吧…支持加粗、链接、表情',
+    value: '<p>你好,<strong>世界</strong>!这是 <code>lry-editor-lite</code> 简约版。</p>'
+  });
+  LRYEditorLite.create({
+    mount: '#editor2',
+    textarea: 'demo_lite_readonly',
+    readonly: true,
+    value: '<p>只读态:无工具栏,内容不可编辑,适合回显展示。</p>'
+  });
+  var out = document.getElementById('out');
+  var sync = function () { out.value = inst.getContent(); };
+  inst.on('contentChange', sync);
+  sync();
+})();
+</script>
+</body>
+</html>

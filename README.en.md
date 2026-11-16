@@ -11,6 +11,8 @@ An open-source multi-document rich text editor — Tiptap core, Yuque-style expe
 - **Toolbar**: 89 buttons; full display on desktop, 3-row adaptive with "more" on mobile
 - **Auto outline & heading fold, autosave, format painter, find & replace, fullscreen, multi-theme code highlighting**
 
+> For guestbook / comment / reply scenarios see the **[lite edition](#lite-edition-comments--guestbook)**: text-only formatting, a single 413KB file, same-shape API as the full editor.
+
 ## Quick Start (no backend)
 
 ```bash
@@ -85,10 +87,39 @@ Output HTML is library-agnostic and database-ready; every custom block uses sema
 <pre class="brush:js;toolbar:false;">…</pre>
 ```
 
+## lite edition (comments / guestbook)
+
+A standalone build for lightweight input scenarios — guestbooks, article comments, forum replies: `dist/lry-editor-lite.js` (**413KB / 132KB gzip** vs 623KB full), global `window.LRYEditorLite`, **API identical in shape** to the full editor.
+
+- **Text-only formatting**: bold / italic / underline / strike / inline code · link (Ctrl+K) · quote / ordered & bullet lists · Unicode emoji · clear formatting
+- **No** image upload, tables, headings, code blocks, diagrams, Markdown or AI — a minimal surface that only needs a narrow server-side whitelist filter
+- Word limit (`maximumWords` hard-blocks typing), placeholder, read-only mode, live character counter
+- Form sync identical to the full editor: 200ms debounced write-back + forced flush on blur/submit; when mounted on an existing `<textarea>` the hidden field keeps its name/id, so existing page validators keep working
+- Built-in input sanitizing (strips `script` / `on*` / `javascript:`); the server should still whitelist-filter (defense in depth)
+
+```html
+<link rel="stylesheet" href="dist/lry-editor-lite.css">
+<div id="comment_editor"></div>
+<script src="dist/lry-editor-lite.js"></script>
+<script>
+  LRYEditorLite.create({
+    mount: '#comment_editor',
+    textarea: 'content',        // form field name
+    maximumWords: 500,          // word limit (hard block + counter)
+    height: 140,
+    placeholder: 'Leave a comment…'
+  });
+</script>
+```
+
+Via npm: `import { LRYEditorLiteAPI } from 'lry-editor/lite'`. Demo: [demo/lite.html](demo/lite.html).
+
 ## Build
 
 ```bash
-npm install && npm run build   # emits dist/lry-editor.js + lry-editor.css (IIFE single file)
+npm install
+npm run build         # dist/lry-editor.js (full, IIFE single file)
+npm run build:lite    # dist/lry-editor-lite.js (lite edition)
 ```
 
 ## License

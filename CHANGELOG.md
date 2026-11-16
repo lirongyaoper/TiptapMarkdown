@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 (2026-11-16)
+
+新增 **lite 简约版**(留言/评论场景,同步自 lryper.com 站内版):
+
+- 独立构建 `dist/lry-editor-lite.js`(413KB / gzip 132KB)+ `lry-editor-lite.css`,全局对象 `window.LRYEditorLite`,npm 入口 `lry-editor/lite`
+- API 与 full 版同形:create/get/getContent/getText/setContent/insertHtml/on('contentChange')/sync/destroy
+- 纯文字排版:撤销/重做 · 加粗/斜体/下划线/删除线/行内代码 · 链接(Ctrl+K 紧凑弹层)· 引用/列表 · Unicode 表情 · 清除格式
+- maximumWords 超限硬阻断 + 字数计数条、placeholder、只读态(无工具栏)
+- 表单同步:200ms 防抖写回 + blur/submit 强制 flush;挂载既有 textarea 时保留 name/id 并移除 required、打 `data-lry-lite` 标记
+- 入口输入清洗(剥 script/on*/javascript:);复用 dom/icons/emoji/serialize 与 full 版零分歧
+- 新增 `npm run build:lite` / `watch:lite`;test/os-test.mjs 增加 11 项 lite 断言(共 18 项);新增 demo/lite.html
+
 ## 1.0.0 (2026-11-16)
 
 首发:从 lryper.com 站内编辑器(历经 9 轮迭代与全量审计)抽出的通用开源版。
