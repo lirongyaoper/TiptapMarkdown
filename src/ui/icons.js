@@ -35,6 +35,8 @@ export const ICONS = {
   direction: S('<path d="M11 4h9"/><path d="m15 2 2 2-2 2"/><path d="M11 20h9"/><path d="m15 18 2 2-2 2"/><path d="M4 4l5 8-5 8"/>'),
   indent: S('<path d="M10 6h10M10 12h10M10 18h10M4 9l3 3-3 3"/>'),
   outdent: S('<path d="M10 6h10M10 12h10M10 18h10M7 9l-3 3 3 3"/>'),
+  /* 首行缩进(全文模式开关):仅首行右移,竖标提示缩进位 */
+  firstlineindent: S('<path d="M11 6h9"/><path d="M3 12h17"/><path d="M3 18h17"/><path d="M8 3v6"/>'),
   caseupper: S('<path d="M3 18 7 6l4 12M4.5 14h5"/><path d="M14 18v-6a3 3 0 0 1 6 0v6"/><path d="M14 13h6" stroke-width="3.4"/>'),
   caselower: S('<path d="M4 17v-5a3 3 0 0 1 6 0v5"/><path d="M4 10v7"/><path d="M13 17v-5a3 3 0 0 1 6 0v5"/><path d="M13 10v7"/>'),
   link: S('<path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/>'),
@@ -87,5 +89,15 @@ export const ICONS = {
   fontborder: S('<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 2"/><path d="M8 16 12 8l4 8M9.5 13h5"/>'),
   colorpicker: S('<path d="M12 3c-4.5 0-8 3-8 7 0 2.5 2 4 4 4h1l1 5 5-2-1-3c2.5-1 6-3.5 6-7 0-2.5-3-4-8-4z"/>'),
   caret: '<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>',
-  close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+  close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  /* 2026-11-21 现代编辑器增强:待办清单(bubble/lite 工具栏共用) */
+  checklist: S('<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m4.5 8 1 1 1.8-2"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M13 7h8M13 12h5M13 17h8"/>'),
+  /* 2026-11-23 v1.2.0:上下文工具条(链接/图片/表格)与状态栏 */
+  edit: S('<path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="m13.5 7.5 3 3"/>'),
+  copy: S('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>'),
+  trash: S('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/>'),
+  external: S('<path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
+  caption: S('<rect x="3" y="4" width="18" height="14" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m21 16-5-5-9 7"/><path d="M4 21h16"/>'),
+  tableheader: S('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18" stroke-width="3.2"/><path d="M9 10v10"/>'),
+  stats: S('<path d="M4 20v-6M10 20V6M16 20v-9"/><path d="M3 20h18"/>')
 };

@@ -11,6 +11,8 @@ import { openColorPanel } from './color.js';
 import { openEmojiPicker } from './emoji.js';
 import { openFormulaDialog } from './formula.js';
 import { openScrawlDialog } from './scrawl.js';
+import { typesetDoc, TYPESET_DEFAULTS } from './autotypeset.js';
+import { openExportMenu } from './exporters.js';
 
 /* ---------- 命令实现 ---------- */
 function indentBlock(ed, dir) {
@@ -220,6 +222,8 @@ const REG = {
   inserttable: { icon: 'table', title: '插入表格', cmd: 'insertTable', args: { rows: 3, cols: 3, withHeaderRow: true } },
   indent: { icon: 'indent', title: '增加缩进', fn: (i) => indentBlock(ED(i), 1) },
   outdent: { icon: 'outdent', title: '减少缩进', fn: (i) => indentBlock(ED(i), -1) },
+  /* 首行自动缩进:全文模式开关(开启后新段落自动续用,详见 extensions/blocks.js FirstLineIndent) */
+  firstlineindent: { icon: 'firstlineindent', title: '首行缩进(全文)', cmd: 'toggleFirstLineIndent' },
   justifyleft: { icon: 'alignleft', title: '居左', blockStyle: ['align', 'left'] },
   justifycenter: { icon: 'aligncenter', title: '居中', blockStyle: ['align', 'center'] },
   justifyright: { icon: 'alignright', title: '居右', blockStyle: ['align', 'right'] },
@@ -251,9 +255,28 @@ const REG = {
   /* phase5 钩子(md/ai 由 md-core 就绪后接管) */
   markdown: { icon: 'markdown', title: 'Markdown 分栏', custom: (i) => (i.mdApi && i.mdApi.toggle) ? i.mdApi.toggle() : toast('Markdown 模块加载中') },
   ai: { icon: 'ai', title: 'AI 助手', custom: (i) => (i.aiApi && i.aiApi.open) ? i.aiApi.open() : toast('AI 面板加载中') },
-  contentimport: { icon: 'import', title: '导入 Markdown/Word', custom: (i) => (i.mdApi && i.mdApi.importDialog) ? i.mdApi.importDialog() : toast('导入模块加载中') },
+  /* 导出(2026-11-23):Markdown/网页/Word/纯文本;exportmd 保留给自定义工具栏配置 */
+  export: { icon: 'exportmd', title: '导出', custom: (i, b) => openExportMenu(b, i) },
   exportmd: { icon: 'exportmd', title: '导出 Markdown', custom: (i) => (i.mdApi && i.mdApi.exportDialog) ? i.mdApi.exportDialog() : toast('导出模块加载中') }
 };
+
+/** 实例的自动排版选项(面板与"粘贴时自动应用"共用) */
+export function typesetOptions(inst) {
+  if (!inst._autotypeset) inst._autotypeset = { ...TYPESET_DEFAULTS, ...(inst.options.autoTypeset || {}) };
+  return inst._autotypeset;
+}
+
+/**
+ * 执行自动排版。range 给定时只排该区间内的段落(粘贴场景)。
+ * @returns {{removed:number,merged:number,trimmed:number}|null} 无改动返回 null
+ */
+export function applyAutoTypeset(inst, range) {
+  const ed = inst.editor;
+  const tr = ed.state.tr;
+  const stats = typesetDoc(tr, typesetOptions(inst), range || null);
+  if (stats) ed.view.dispatch(tr);
+  return stats;
+}
 
 /* ---------- 下拉数据源 ---------- */
 function dropdownItems(kind, inst) {
@@ -307,44 +330,21 @@ function dropdownItems(kind, inst) {
 
 /* ---------- 自动排版 ---------- */
 function autoTypesetPopover(inst, btn) {
-  const opts = inst._autotypeset || (inst._autotypeset = { emptyParas: true, trimSpaces: true, mergeBlank: true, paste: false });
+  const opts = typesetOptions(inst);
   const box = h('div', { class: 'lry-autotypeset' });
   const rows = [['emptyParas', '删除空段落'], ['trimSpaces', '清除行首尾空格'], ['mergeBlank', '合并连续空行'], ['paste', '粘贴时自动应用']];
   rows.forEach(([key, label]) => {
     box.appendChild(h('label', { class: 'lry-check' },
       h('input', { type: 'checkbox', checked: !!opts[key], onchange: (e) => { opts[key] = e.target.checked; } }), label));
   });
+  box.appendChild(h('div', { class: 'lry-tip' }, '代码块内的缩进不受影响'));
   box.appendChild(h('div', { class: 'lry-btn-row', style: { marginTop: 8 } },
-    h('button', { type: 'button', class: 'lry-btn lry-btn-primary', onclick: () => { applyAutoTypeset(inst); closePopover(); } }, '立即执行')));
+    h('button', { type: 'button', class: 'lry-btn lry-btn-primary', onclick: () => {
+      closePopover();
+      const s = applyAutoTypeset(inst);
+      toast(s ? ('排版完成:删空段 ' + s.removed + '、并空行 ' + s.merged + '、清空格 ' + s.trimmed) : '内容已是规范排版,无需调整', s ? 'success' : undefined);
+    } }, '立即执行')));
   popover(btn, box);
-}
-function applyAutoTypeset(inst) {
-  const ed = inst.editor;
-  const o = inst._autotypeset;
-  const tr = ed.state.tr;
-  const doc = ed.state.doc;
-  const paras = [];
-  doc.forEach((n, pos) => paras.push({ n, pos }));
-  /* 从后往前:删空段 */
-  if (o.emptyParas) {
-    [...paras].reverse().forEach(({ n, pos }) => {
-      if (n.type.name === 'paragraph' && n.content.size === 0 && doc.childCount > 1) tr.delete(pos, pos + n.nodeSize);
-    });
-  }
-  ed.view.dispatch(tr);
-  /* 文本修剪需逐段重写 */
-  if (o.trimSpaces || o.mergeBlank) {
-    ed.state.doc.forEach((n, pos) => {
-      if (n.type.name !== 'paragraph' || !n.textContent) return;
-      let text = n.textContent;
-      if (o.trimSpaces) text = text.replace(/^[ \t\u3000]+|[ \t\u3000]+$/g, '');
-      const isEmpty = !text.trim();
-      if (o.emptyParas && isEmpty && ed.state.doc.childCount > 1) {
-        ed.chain().command(({ tr: t }) => { t.delete(pos, pos + n.nodeSize); return true; }).run();
-      }
-    });
-  }
-  toast('自动排版完成', 'success');
 }
 
 /* ---------- 渲染 ---------- */
@@ -499,6 +499,7 @@ export function mountToolbar(inst) {
       else if (spec.cmd === 'toggleSubscript') active = ed.isActive('subscript');
       else if (spec.cmd === 'toggleFontBorder') active = ed.isActive('fontBorder');
       else if (spec.cmd === 'toggleBlockquote') active = ed.isActive('blockquote');
+      else if (spec.cmd === 'toggleFirstLineIndent') active = !!(ed.storage.lryFirstLineIndent && ed.storage.lryFirstLineIndent.enabled);
       else if (spec.cmd === 'toggleOrderedList') active = ed.isActive('orderedList');
       else if (spec.cmd === 'toggleBulletList') active = ed.isActive('bulletList');
       else if (spec.blockStyle && spec.blockStyle[0] === 'align') {

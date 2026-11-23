@@ -1,0 +1,9 @@
+highlight.js 11.12.0 自定义构建（core + 58 种语言），产物 highlight.min.js 暴露 window.hljs（BSD-3-Clause，许可原文见同目录 LICENSE）。
+构建方式：npm i highlight.js@11.12.0 esbuild；入口按下列语言 registerLanguage 后
+esbuild entry.js --bundle --minify --format=iife --global-name=hljs。
+语言：bash c cpp csharp css diff go ini java javascript json kotlin less lua makefile markdown objectivec perl php php-template plaintext python python-repl r ruby rust scss shell sql swift typescript vbnet wasm xml yaml graphql dockerfile nginx powershell scala latex matlab dart erlang groovy haskell http julia protobuf apache cmake properties x86asm delphi actionscript vbscript elixir clojure
+主题：lry-code-themes.js（本项目自研调色板，10 套主题；编辑态令牌着色与前台 span 着色共用同一份数据，暴露 window.LryCodeThemes）。
+加载：编辑器在文档里出现非空代码块时才按需加载本目录，打包体积不增长。
+      目录位置 = 包根 + third-party/highlight/；包根由 <script src="…/dist/lry-editor.js"> 推断，
+      可用 window.LRY_EDITOR_BASE 统一覆写，或用 window.LRY_EDITOR_HIGHLIGHT_BASE 单独指定本目录。
+      页面已自带 window.hljs 时不重复加载 highlight.min.js。

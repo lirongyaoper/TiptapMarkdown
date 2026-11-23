@@ -163,6 +163,8 @@ UE.postprocessMarkdownHtml = function (html) {
 /* 统一 showdown 配置（GFM 兼容 + 防常见误判） */
 UE.markdownShowdownOptions = function () {
     return {
+        simpleLineBreaks: true,                      // 段内单换行渲染为 <br>（语雀/Typora 风格）：
+                                                  // 2026-11-22 修复高亮块 :::success 等多行内容在预览侧被并成一行
         tables: true,                                // 表格解析
         strikethrough: true,                         // ~~删除线~~
         tasklists: true,                             // - [x] 任务列表

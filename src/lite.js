@@ -4,26 +4,33 @@
  * 页面接入(与 LRYEditor 同形,零学习成本):
  *   LRYEditorLite.create({ mount:'#msg_editor', textarea:'bookmsg',
  *                          value:'', placeholder:'请输入留言内容…',
- *                          maximumWords:500, height:140 })
+ *                          maximumWords:500, height:140,
+ *                          images:true, module:'forum' })
  *   LRYEditorLite.get('bookmsg') → { getContent, getText, setContent, insertHtml,
  *                                    on('contentChange'), focus, sync, destroy }
  *
  * 简约边界:纯文字排版(bold/italic/underline/strike/行内code/链接/引用/列表/
- * 表情),无图片上传、无表格/代码块/标题/MD/AI;StarterKit 内置扩展按需关闭。
+ * 表情);可选 images:true 开启贴图(2026-11-21,工具栏出现图片按钮,上传走
+ * 经 adapter 上传(src/upload.js;默认 memoryAdapter);未开启时粘贴的图片按 schema 丢弃,
+ * 与旧版行为一致)。无表格/代码块/标题/MD/AI;StarterKit 内置扩展按需关闭。
  * 同步策略与 full 版一致:transaction 防抖 200ms 写回 + form submit 捕获 flush。
  */
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { CharacterCount, Placeholder } from '@tiptap/extensions';
 import Link from '@tiptap/extension-link';
+import Image from '@tiptap/extension-image';
 
 import { h, toast, popover, closePopover } from './ui/dom.js';
 import { ICONS } from './ui/icons.js';
 import { openEmojiPicker } from './ui/emoji.js';
 import { postprocessOutput } from './legacy/serialize.js';
+import { uploadFile } from './upload.js';
+import { LryTaskList, LryTaskItem } from './extensions/task-list.js';
+import { mountBubbleMenu } from './ui/bubble.js';
 import './styles/lry-editor-lite.css';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.2.1';
 
 /* ---------- 输入清洗:留言场景最小集(防御纵深,服务端仍需过滤输出) ---------- */
 function sanitizeInput(html) {
@@ -77,7 +84,34 @@ function openLinkPopover(anchor, inst) {
   setTimeout(() => input.focus(), 60);
 }
 
-/* ---------- 工具栏:一行 13 钮,无下拉无折叠,横向滚动自适应 ---------- */
+/* ---------- 贴图(可选):本地点选 → adapter 上传 → 插入 <img> ---------- */
+function openImagePicker(anchor, inst) {
+  if (anchor && anchor.dataset && anchor.dataset.lryUploading === '1') return;
+  const input = h('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    input.remove();
+    if (!file) return;
+    if (!/\.(png|jpe?g|gif|bmp|webp|avif)$/i.test(file.name)) {
+      toast('仅支持图片文件(png/jpg/gif/webp 等)', 'error');
+      return;
+    }
+    if (anchor && anchor.dataset) anchor.dataset.lryUploading = '1';
+    try {
+      const r = await uploadFile(file, { filetype: 1, module: inst.options.module || '' }, inst);
+      inst.insertHtml('<img src="' + String(r.url).replace(/"/g, '%22') + '" alt="图片">');
+      inst.editor.commands.focus();
+    } catch (e) {
+      toast((e && e.message) || '图片上传失败', 'error');
+    } finally {
+      if (anchor && anchor.dataset) delete anchor.dataset.lryUploading;
+    }
+  });
+  document.body.appendChild(input);
+  input.click();
+}
+
+/* ---------- 工具栏:一行 13 钮(开启贴图 +1),无下拉无折叠,横向滚动自适应 ---------- */
 const TOOLS = [
   { cmd: 'undo', icon: 'undo', title: '撤销' },
   { cmd: 'redo', icon: 'redo', title: '重做' },
@@ -94,18 +128,25 @@ const TOOLS = [
   { cmd: 'toggleBlockquote', icon: 'blockquote', title: '引用', active: 'blockquote' },
   { cmd: 'toggleBulletList', icon: 'unorderedlist', title: '无序列表', active: 'bulletList' },
   { cmd: 'toggleOrderedList', icon: 'orderedlist', title: '有序列表', active: 'orderedList' },
+  { cmd: 'toggleTaskList', icon: 'checklist', title: '待办清单', active: 'taskList' },
   '|',
-  { icon: 'emotion', title: '表情', open: (anchor, inst) => openEmojiPicker(anchor, inst) },
-  '|',
-  { cmd: 'unsetAllMarks', icon: 'removeformat', title: '清除格式' }
+	{ icon: 'emotion', title: '表情', open: (anchor, inst) => openEmojiPicker(anchor, inst) },
+	'|',
+	{ cmd: 'unsetAllMarks', icon: 'removeformat', title: '清除格式' }
 ];
+/* 贴图钮(仅 options.images 开启时拼进工具栏,插入表情钮之前) */
+const IMAGE_TOOL = { icon: 'image', title: '插入图片', open: openImagePicker };
 
 function mountToolbar(inst) {
   const bar = inst.wrapper.querySelector('.lry-lite-toolbar');
   if (!bar) return;
   const ed = inst.editor;
   const buttons = [];
-  TOOLS.forEach((tool) => {
+  /* 贴图开启:插在表情之前,与其共用一个分隔段 */
+  const tools = inst.options.images
+    ? TOOLS.slice(0, TOOLS.length - 2).concat([IMAGE_TOOL], TOOLS.slice(-2))
+    : TOOLS;
+  tools.forEach((tool) => {
     if (tool === '|') { bar.appendChild(h('span', { class: 'lry-toolbar-sep' })); return; }
     const btn = h('button', {
       type: 'button', class: 'lry-tool-btn', title: tool.title,
@@ -199,9 +240,15 @@ function create(options) {
         openOnClick: false, autolink: true, defaultProtocol: 'https',
         HTMLAttributes: { rel: null, target: null }
       }),
+      /* 待办清单(2026-11-21):契约序列化同 full 版(ul.lry-task + ☑/☐ 字符),
+         评论/留言侧服务端剥 class 后字符仍在,语义不损 */
+      LryTaskList,
+      LryTaskItem,
+      /* 贴图(2026-11-21):仅 images:true 时注册;未注册时粘贴图片按 schema 丢弃(与旧版一致) */
+      options.images ? Image.configure({ inline: false, allowBase64: false }) : null,
       CharacterCount.configure({ limit: options.maximumWords || null }),
       Placeholder.configure({ placeholder: options.placeholder || '请输入内容…' })
-    ],
+    ].filter(Boolean),
     content: sanitizeInput(options.value || textarea.value || ''),
     editable: !readonly,
     editorProps: {
@@ -265,6 +312,7 @@ function create(options) {
     sync() { flush(); return this; },
     destroy() {
       if (submitHandler && form) form.removeEventListener('submit', submitHandler, true);
+      if (instance._bubbleDestroy) instance._bubbleDestroy();
       flush();
       editor.destroy();
       if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
@@ -281,6 +329,16 @@ function create(options) {
         openLinkPopover(wrapper.querySelector('[title^="链接"]') || wrapper, instance);
       }
     });
+    /* 划词迷你气泡条(2026-11-21 现代编辑器增强):选中文本浮现常用格式 */
+    instance._bubbleDestroy = mountBubbleMenu(instance, [
+      { icon: 'bold', title: '加粗', run: (ed) => ed.chain().focus().toggleBold().run(), active: 'bold' },
+      { icon: 'italic', title: '斜体', run: (ed) => ed.chain().focus().toggleItalic().run(), active: 'italic' },
+      { icon: 'underline', title: '下划线', run: (ed) => ed.chain().focus().toggleUnderline().run(), active: 'underline' },
+      { icon: 'strikethrough', title: '删除线', run: (ed) => ed.chain().focus().toggleStrike().run(), active: 'strike' },
+      { icon: 'code', title: '行内代码', run: (ed) => ed.chain().focus().toggleCode().run(), active: 'code' },
+      '|',
+      { icon: 'link', title: '链接', run: (ed, inst, btn) => openLinkPopover(btn, inst), active: 'link' }
+    ]);
   }
   wireCounter(instance);
 

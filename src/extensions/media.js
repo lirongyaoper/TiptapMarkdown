@@ -59,6 +59,89 @@ export const LryImage = Image.extend({
           width: options.width || null, height: options.height || null }
       })
     };
+  },
+  /* 图片等比缩放手柄(2026-11-21 现代编辑器增强):
+     悬停/选中图片出现右下角拖拽点,拖拽以宽度为基准等比缩放(40px~容器宽);
+     尺寸持久化走 width/height 属性(服务端 remove_xss 的 img 属性白名单已放行),
+     序列化仍由 renderHTML 输出,NodeView 仅负责编辑态交互与属性回写 */
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      const wrap = document.createElement('span');
+      wrap.className = 'lry-imgwrap';
+      const img = document.createElement('img');
+      const handle = document.createElement('span');
+      handle.className = 'lry-img-resize';
+      handle.title = '拖拽调整大小';
+
+      const sync = (n) => {
+        img.setAttribute('src', n.attrs.src || '');
+        if (n.attrs.alt != null) img.setAttribute('alt', n.attrs.alt); else img.removeAttribute('alt');
+        if (n.attrs.title) img.setAttribute('title', n.attrs.title); else img.removeAttribute('title');
+        if (n.attrs.width) img.setAttribute('width', n.attrs.width); else img.removeAttribute('width');
+        if (n.attrs.height) img.setAttribute('height', n.attrs.height); else img.removeAttribute('height');
+        const st = [];
+        if (n.attrs.float === 'left' || n.attrs.float === 'right') st.push('float:' + n.attrs.float);
+        if (n.attrs.center) st.push('display:block', 'margin-left:auto', 'margin-right:auto');
+        if (st.length) img.setAttribute('style', st.join(';')); else img.removeAttribute('style');
+        wrap.classList.toggle('lry-imgwrap-left', n.attrs.float === 'left');
+        wrap.classList.toggle('lry-imgwrap-right', n.attrs.float === 'right');
+        wrap.classList.toggle('lry-imgwrap-center', !!n.attrs.center);
+      };
+      sync(node);
+
+      handle.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = img.getBoundingClientRect();
+        let startW = rect.width;
+        let startH = rect.height;
+        if (!startW || !startH) {
+          /* 无布局环境/隐藏图片:以属性值或常用缺省起步 */
+          startW = parseInt(img.getAttribute('width'), 10) || 400;
+          startH = parseInt(img.getAttribute('height'), 10) || Math.round(startW * 0.75);
+        }
+        const ratio = startH / startW;
+        const startX = e.clientX;
+        const container = wrap.closest('.lry-editor-content') || wrap.parentElement;
+        const maxW = container && container.clientWidth ? container.clientWidth : 1200;
+        const move = (ev) => {
+          const w = Math.max(40, Math.min(Math.round(startW + (ev.clientX - startX)), Math.max(40, maxW)));
+          img.setAttribute('width', w);
+          img.setAttribute('height', Math.round(w * ratio));
+        };
+        const up = () => {
+          document.removeEventListener('mousemove', move);
+          document.removeEventListener('mouseup', up);
+          const w = parseInt(img.getAttribute('width'), 10) || startW;
+          const h = parseInt(img.getAttribute('height'), 10) || Math.round(w * ratio);
+          editor.chain().focus().command(({ tr }) => {
+            const pos = typeof getPos === 'function' ? getPos() : getPos;
+            if (typeof pos === 'number') tr.setNodeMarkup(pos, undefined, { ...node.attrs, width: w, height: h });
+            return true;
+          }).run();
+        };
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+      });
+
+      wrap.appendChild(img);
+      wrap.appendChild(handle);
+      return {
+        dom: wrap,
+        update(updatedNode) {
+          if (updatedNode.type.name !== 'image') return false;
+          node = updatedNode;
+          sync(node);
+          return true;
+        },
+        /* 手柄事件自行处理,不进 ProseMirror 事件流 */
+        stopEvent(e) {
+          return e.target === handle;
+        },
+        ignoreMutation() { return true; }
+      };
+    };
   }
 });
 

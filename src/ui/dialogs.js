@@ -3,31 +3,53 @@
  * 查找替换/模板/帮助/预览/源码/表格属性/单元格属性/背景/Word图转存/代码语言。
  */
 import { h, dialog, toast, field, textField, selectEl } from './dom.js';
+import { NodeSelection } from '@tiptap/pm/state';
 import { uploadFile, listAttachments, catchImages } from '../upload.js';
 import { CODE_LANGS, TEMPLATES, SPECIAL_CHARS, COLORS } from '../config.js';
 import { ICONS } from './icons.js';
+import { mergeCellStyle, cellBackgroundAt } from './table-ops.js';
 
 const D = {}; /* 注册表:name → (inst) => open */
+
+/* 网址校验(2026-11-23):放行 http(s)/ftp(s)/mailto/tel、相对路径与页内锚点;
+   www. 开头补 https;其余协议(javascript:/data: 等)一律拒绝,与服务端
+   lry_safe_url 协议白名单一致——旧对话框用 insertContent 直塞 mark,绕过了官方校验 */
+export function normalizeHref(raw) {
+  let href = String(raw || '').trim();
+  if (!href) return { href: '', error: '请填写链接地址' };
+  if (/^www\./i.test(href)) href = 'https://' + href;
+  if (/[\s<>"']/.test(href)) return { href: '', error: '链接地址不能包含空格或引号' };
+  const m = /^([a-z][a-z0-9+.\-]*):/i.exec(href);
+  if (m && !/^(https?|ftps?|mailto|tel)$/i.test(m[1])) return { href: '', error: '仅支持 http / https / mailto 等安全协议' };
+  return { href };
+}
 
 /* ---------- 链接 ---------- */
 D.link = (inst) => {
   const ed = inst.editor;
   const existing = ed.getAttributes('link');
+  const sel = ed.state.selection;
+  const selectedText = sel.empty ? '' : ed.state.doc.textBetween(sel.from, sel.to, '\n');
   const hrefIn = textField('https://', existing.href || '');
-  const textIn = textField('链接文字(留空使用选中文本)', ed.state.selection.empty ? '' : ed.state.doc.textBetween(ed.state.selection.from, ed.state.selection.to));
+  const textIn = textField('链接文字(留空使用选中文本)', selectedText);
   const targetSel = selectEl([{ value: '', label: '当前窗口' }, { value: '_blank', label: '新窗口' }], existing.target || '_blank');
   dialog({
-    title: '插入链接', width: '420px', body: h('div', null,
+    title: existing.href ? '编辑链接' : '插入链接', width: '420px', body: h('div', null,
       field('地址', hrefIn), field('文字', textIn), field('打开方式', targetSel)),
     onOk(api) {
-      const href = hrefIn.value.trim();
-      if (!href) { toast('请填写链接地址', 'error'); return false; }
-      ed.chain().focus().extendMarkRange('link')
-        .insertContent({
-          type: 'text',
-          text: textIn.value.trim() || href,
-          marks: [{ type: 'link', attrs: { href, target: targetSel.value || null, rel: targetSel.value ? 'noopener' : null } }]
+      const r = normalizeHref(hrefIn.value);
+      if (r.error) { toast(r.error, 'error'); return false; }
+      const target = targetSel.value || null;
+      const attrs = { href: r.href, target, rel: target ? 'noopener' : null };
+      const text = textIn.value.trim();
+      if (!sel.empty && (!text || text === selectedText)) {
+        /* 选区原样加链接:保留选区内既有格式(旧实现重建文本节点会丢加粗/颜色等) */
+        ed.chain().focus().extendMarkRange('link').setLink(attrs).run();
+      } else {
+        ed.chain().focus().extendMarkRange('link').insertContent({
+          type: 'text', text: text || r.href, marks: [{ type: 'link', attrs }]
         }).run();
+      }
       api.close();
       return false;
     }
@@ -35,7 +57,7 @@ D.link = (inst) => {
 };
 
 /* ---------- 图片(上传/在线/远程 三页签) ---------- */
-D.insertimage = (inst) => openImageDialog(inst, true);
+D.insertimage = (inst, arg) => openImageDialog(inst, arg && typeof arg === 'object' ? arg : undefined);
 D.simpleupload = (inst) => {
   const input = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
   input.addEventListener('change', async () => {
@@ -54,11 +76,14 @@ D.simpleupload = (inst) => {
   input.click();
 };
 
-function openImageDialog(inst) {
-  const urlIn = textField('/uploads/… 或 https://…');
-  const altIn = textField('替代文本');
-  const wIn = textField('宽', '', { type: 'number', min: 1 });
-  const hIn = textField('高', '', { type: 'number', min: 1 });
+function openImageDialog(inst, opts) {
+  /* 编辑模式(2026-11-23):选中图片后双击/上下文条进入,原位更新属性而非新插一张 */
+  const sel = inst.editor.state.selection;
+  const editing = opts && opts.edit && sel instanceof NodeSelection && sel.node.type.name === 'image' ? sel.node : null;
+  const urlIn = textField('/uploads/… 或 https://…', editing ? editing.attrs.src || '' : '');
+  const altIn = textField('替代文本', editing ? (editing.attrs.alt || editing.attrs.title || '') : '');
+  const wIn = textField('宽', editing && editing.attrs.width ? String(editing.attrs.width) : '', { type: 'number', min: 1 });
+  const hIn = textField('高', editing && editing.attrs.height ? String(editing.attrs.height) : '', { type: 'number', min: 1 });
   let pickedUrl = null;
   const gallery = h('div', { class: 'lry-gallery' });
   const loadList = async () => {
@@ -86,6 +111,12 @@ function openImageDialog(inst) {
         const results = [];
         for (const f of files) results.push(await uploadFile(f, { filetype: 1, module: inst.options.module }, inst));
         if (results.length === 1) { urlIn.value = results[0].url; pickedUrl = results[0].url; }
+        else if (editing) {
+          inst.editor.chain().updateAttributes('image', { src: results[0].url })
+            .focus().insertContent(results.slice(1).map((r) => ({ type: 'image', attrs: { src: r.url } }))).run();
+          toast(results.length + ' 张图片已应用', 'success');
+          dlgApi.close(); return;
+        }
         else {
           inst.editor.chain().focus().insertContent(results.map((r) => ({ type: 'image', attrs: { src: r.url } }))).run();
           toast(results.length + ' 张图片已插入', 'success');
@@ -124,22 +155,25 @@ function openImageDialog(inst) {
     for (const f of files) {
       try {
         const r = await uploadFile(f, { filetype: 1, module: inst.options.module }, inst);
-        inst.editor.chain().focus().setImage({ src: r.url }).run();
+        if (editing) inst.editor.chain().updateAttributes('image', { src: r.url }).run();
+        else inst.editor.chain().focus().setImage({ src: r.url }).run();
       } catch (err) { toast(err.message, 'error'); }
     }
   });
 
   uploadBtn.style.display = 'none'; /* 触发器藏在拖拽区后,不独立展示 */
   const dlgApi = dialog({
-    title: '插入图片', width: '560px',
+    title: editing ? '编辑图片' : '插入图片', width: '560px',
     body: h('div', null, tabBar, pages.online, pages.up, pages.remote),
     onOk() {
       const src = (urlIn.value || '').trim() || pickedUrl;
       if (!src) { toast('请上传或填写图片地址', 'error'); return false; }
-      inst.editor.chain().focus().setImage({
+      const attrs = {
         src, alt: altIn.value || null, title: altIn.value || null,
         width: wIn.value || null, height: hIn.value || null
-      }).run();
+      };
+      if (editing) inst.editor.chain().updateAttributes('image', attrs).run();
+      else inst.editor.chain().focus().setImage(attrs).run();
     }
   });
   loadList();
@@ -157,7 +191,7 @@ D.insertvideo = (inst) => {
       if (!f) return;
       upBtn.disabled = true; upBtn.textContent = '上传中(分片)…';
       try {
-        const r = await uploadFile(f, { filetype: 2, module: inst.options.module, onProgress: (p) => { upBtn.textContent = '上传中 ' + p + '%'; } });
+        const r = await uploadFile(f, { filetype: 2, module: inst.options.module, onProgress: (p) => { upBtn.textContent = '上传中 ' + p + '%'; } }, inst);
         urlIn.value = r.url; toast('视频已上传', 'success');
       } catch (e) { toast(e.message, 'error'); }
       upBtn.disabled = false; upBtn.textContent = '上传视频文件';
@@ -243,58 +277,8 @@ D.anchor = (inst) => {
     } });
 };
 
-/* ---------- 查找替换 ---------- */
-D.searchreplace = (inst) => {
-  const ed = inst.editor;
-  const findIn = textField('查找内容');
-  const repIn = textField('替换为');
-  const info = h('div', { class: 'lry-tip' }, '');
-  let matches = [], pos = -1;
-
-  const countMatches = () => {
-    const q = findIn.value;
-    matches = [];
-    if (!q) { info.textContent = ''; return; }
-    ed.state.doc.descendants((node, nodePos) => {
-      if (!node.isText || !node.text) return;
-      let idx = node.text.indexOf(q);
-      while (idx >= 0) { matches.push({ from: nodePos + idx, to: nodePos + idx + q.length }); idx = node.text.indexOf(q, idx + q.length); }
-    });
-    info.textContent = matches.length ? (matches.length + ' 处匹配' + (pos >= 0 ? ',' + (pos + 1) + '/' + matches.length : '')) : '无匹配';
-  };
-  const focusMatch = (dir) => {
-    if (!matches.length) return;
-    pos = (pos + dir + matches.length) % matches.length;
-    const m = matches[pos];
-    ed.chain().focus().setTextSelection({ from: m.from, to: m.to }).scrollIntoView().run();
-    info.textContent = matches.length + ' 处匹配,' + (pos + 1) + '/' + matches.length;
-  };
-  const replaceOne = () => {
-    if (pos < 0 || !matches[pos]) { toast('请先定位一处匹配', 'error'); return; }
-    const m = matches[pos];
-    ed.chain().insertContentAt({ from: m.from, to: m.to }, repIn.value).run();
-    countMatches(); pos = pos - 1; focusMatch(1);
-  };
-  const replaceAll = () => {
-    if (!matches.length) { toast('无匹配', 'error'); return; }
-    let n = 0;
-    /* 从后往前替换避免坐标漂移 */
-    [...matches].reverse().forEach((m) => { ed.chain().insertContentAt({ from: m.from, to: m.to }, repIn.value).run(); n++; });
-    countMatches();
-    toast('已替换 ' + n + ' 处', 'success');
-  };
-  findIn.addEventListener('input', () => { pos = -1; countMatches(); });
-  findIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); focusMatch(1); } });
-
-  dialog({ title: '查找替换', width: '440px', noFooter: true,
-    body: h('div', null, field('查找', findIn), field('替换', repIn), info,
-      h('div', { class: 'lry-btn-row' },
-        h('button', { type: 'button', class: 'lry-btn', onclick: () => focusMatch(-1) }, '上一个'),
-        h('button', { type: 'button', class: 'lry-btn', onclick: () => focusMatch(1) }, '下一个'),
-        h('button', { type: 'button', class: 'lry-btn', onclick: replaceOne }, '替换'),
-        h('button', { type: 'button', class: 'lry-btn lry-btn-primary', onclick: replaceAll }, '全部替换')))
-  });
-};
+/* ---------- 查找替换:2026-11-23 起由编辑器内浮动条承担(ui/find-replace.js) ---------- */
+D.searchreplace = (inst, mode) => (inst.findApi ? inst.findApi.open({ replace: mode === 'replace' }) : false);
 
 /* ---------- 模板 ---------- */
 D.template = (inst) => {
@@ -310,11 +294,16 @@ D.template = (inst) => {
 
 /* ---------- 帮助 ---------- */
 D.help = () => {
-  dialog({ title: '帮助', width: '460px', noFooter: true, body: h('div', { class: 'lry-help' , html:
-    '<p><b>快捷键</b>:Ctrl+B 加粗 / Ctrl+I 斜体 / Ctrl+U 下划线 / Ctrl+K 链接 / Ctrl+Z 撤销 / Ctrl+Shift+Z 重做 / Tab 表格切换单元格</p>' +
-    '<p><b>Markdown</b>:直接粘贴 Markdown 文本会自动识别;工具栏「MD」进入分栏模式</p>' +
-    '<p><b>代码块</b>:插入后在块内可选择语言,前台自动高亮</p>' +
-    '<p><b>大文件</b>:视频等超过 5MB 自动走分片上传,支持断点重试</p>' }) });
+  dialog({ title: '帮助', width: '520px', noFooter: true, body: h('div', { class: 'lry-help' , html:
+    '<p><b>常用快捷键</b>:Ctrl+B 加粗 / Ctrl+I 斜体 / Ctrl+U 下划线 / Ctrl+K 链接 / Ctrl+Shift+H 高亮 / Ctrl+F 查找 / Ctrl+H 替换 / Ctrl+Z 撤销 / Ctrl+Shift+Z 重做 / Ctrl+Shift+V 纯文本粘贴</p>' +
+    '<p><b>插入</b>:行首或空格后输入 <code>/</code> 唤起插入面板(↑↓ 选择、回车确认);行首输入 <code>+</code> 同样可用</p>' +
+    '<p><b>Markdown</b>:边写边转(# 标题、**加粗**、- 列表、&gt; 引用、``` 代码、$公式$、==高亮==);直接粘贴 Markdown 文本自动识别;工具栏「MD」进入分栏模式</p>' +
+    '<p><b>表格</b>:光标进表格浮现行/列操作条,拖动列边界调列宽;Tab 切换单元格</p>' +
+    '<p><b>图片</b>:点击图片出现对齐/宽度/说明操作条,拖右下角等比缩放,双击进入编辑</p>' +
+    '<p><b>代码块</b>:点块顶栏的语言名切换语言(也可直接搜索);编辑时实时语法高亮,与发布后同色;向"纯文本"代码块粘贴多行代码会自动识别语言。Tab / Shift+Tab 缩进与反缩进(支持多行选区)</p>' +
+    '<p><b>跳出代码块</b>:空行上按回车(连按两次回车即退出)、按 Esc、或在末行按 ↓;也可点击代码块下方的空白处</p>' +
+    '<p><b>继续书写</b>:正文末尾始终预告着下一行——点它即新起一段,点行首的「+」插入图片/表格/画板等内容</p>' +
+    '<p><b>大文件</b>:视频等超过 5MB 自动走分片上传,支持断点重试;拖入文件即可上传插入</p>' }) });
 };
 
 /* ---------- 预览 / 打印 ---------- */
@@ -369,16 +358,28 @@ D.edittable = (inst) => {
 };
 D.edittd = (inst) => {
   const ed = inst.editor;
-  let cell = null;
-  ed.state.doc.nodesBetween(ed.state.selection.from, ed.state.selection.to, (n) => {
-    if (n.type.name === 'tableCell' || n.type.name === 'tableHeader') cell = n;
+  let cell = null, cellPos = -1;
+  ed.state.doc.nodesBetween(ed.state.selection.from, ed.state.selection.to, (n, pos) => {
+    if (n.type.name === 'tableCell' || n.type.name === 'tableHeader') cell = n, cellPos = pos;
   });
   if (!cell) { toast('请先将光标置于单元格内', 'error'); return; }
   const wIn = textField('如 120 或 30%', cell.attrs.width || '');
-  const bgIn = textField('#ffffff', cell.attrs.bgcolor || '');
-  dialog({ title: '单元格属性', width: '360px', body: h('div', null, field('宽度', wIn), field('背景色', bgIn)),
+  /* 背景色读写 style(服务端白名单内);存量 bgcolor 属性仅作初值兜底 */
+  const bgIn = textField('#ffffff', cellBackgroundAt(ed.state) || '');
+  dialog({ title: '单元格属性', width: '360px', body: h('div', null, field('宽度', wIn), field('背景色', bgIn),
+    h('div', { class: 'lry-tip' }, '背景色支持 #1a66d6 / rgb(...) / 颜色名')),
     onOk() {
-      ed.chain().focus().updateAttributes(cell.type.name, { width: wIn.value || null, bgcolor: bgIn.value || null }).run();
+      const bg = bgIn.value.trim();
+      if (bg && !/^(#[0-9a-f]{3,8}|(?:rgba?|hsla?)\([^)]*\)|[a-z]{3,24})$/i.test(bg)) { toast('背景色格式有误', 'error'); return false; }
+      const width = wIn.value.trim();
+      if (width && !/^(?:\d{1,4}(?:\.\d+)?|\d{1,3}(?:\.\d+)?%)$/.test(width)) { toast('宽度请填数字或百分比', 'error'); return false; }
+      const style = mergeCellStyle(cell.attrs, { 'background-color': bg || null });
+      ed.chain().command(({ tr }) => {
+        const node = tr.doc.nodeAt(cellPos);
+        if (!node) return false;
+        tr.setNodeMarkup(cellPos, undefined, { ...node.attrs, width: width || null, style });
+        return true;
+      }).run();
     } });
 };
 
@@ -410,35 +411,34 @@ D.wordimage = async (inst) => {
   });
   if (!imgs.length && !remotes.length) { toast('未发现待转存图片', 'error'); return; }
   toast('开始转存…');
-  const tr = ed.state.tr;
-  let done = 0;
-  /* data: URI → upload */
+  /* 上传/抓取均为异步:期间文档可能已变,收集结果后按 src 重新定位、
+     用最新状态开一个事务一次写回(旧实现复用 await 之前创建的 tr,坐标会漂移) */
+  const done = new Map(); /* 旧 src → 新 url */
   for (const node of imgs) {
     try {
       const blob = await (await fetch(node.attrs.src)).blob();
       const f = new File([blob], 'word-' + Date.now() + '.png', { type: blob.type || 'image/png' });
       const r = await uploadFile(f, { filetype: 1, module: inst.options.module }, inst);
-      const pos = ed.state.doc.node === node ? -1 : null;
-      /* 重新定位(文档可能已变) */
-      ed.state.doc.descendants((n, p) => { if (n === node) tr.setNodeMarkup(p, null, { ...n.attrs, src: r.url }); });
-      done++;
+      done.set(node.attrs.src, r.url);
     } catch (e) { console.warn('[lry-editor] wordimage data 转存失败', e); }
   }
-  /* 远程 → catch */
   if (remotes.length) {
     try {
       const res = await catchImages(remotes, inst);
-      (res.list || []).forEach((it) => {
-        if (it.state !== 'SUCCESS') return;
-        ed.state.doc.descendants((n, p) => {
-          if (n.type.name === 'image' && n.attrs.src === it.source) tr.setNodeMarkup(p, null, { ...n.attrs, src: it.url });
-        });
-        done++;
-      });
+      (res.list || []).forEach((it) => { if (it.state === 'SUCCESS' && it.url) done.set(it.source, it.url); });
     } catch (e) { toast('远程图转存失败:' + e.message, 'error'); }
   }
-  if (tr.docChanged) ed.view.dispatch(tr);
-  toast('转存完成 ' + done + ' 张', 'success');
+  if (done.size) {
+    ed.chain().command(({ tr }) => {
+      let touched = false;
+      tr.doc.descendants((n, p) => {
+        const url = n.type.name === 'image' && done.get(n.attrs.src);
+        if (url) { tr.setNodeMarkup(p, undefined, { ...n.attrs, src: url }); touched = true; }
+      });
+      return touched;
+    }).run();
+  }
+  toast('转存完成 ' + done.size + ' 张', 'success');
 };
 
 /* ---------- 特殊字符(popover 形态由 toolbar 触发;此处提供对话框版) ---------- */

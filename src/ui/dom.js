@@ -32,16 +32,49 @@ export function toast(msg, type) {
   else console.log('[lry-editor]', msg);
 }
 
+/**
+ * 视口顶部被站点固定/粘性页头占据的高度(视口坐标,2026-11-24)。论坛皮肤等页面有
+ * position:fixed 的页头(如 .lry_header,高 60px、z-index 1000),浮层贴近视口顶部时会
+ * 与之重叠:查找条被压在页头下,高 z-index 的浮层则盖在页头上。定位时以其为上边界。
+ * 做法:在视口顶边探三个点,命中(或其祖先为)fixed/sticky 的元素则取最大下沿;
+ * 近乎全屏的遮罩层(高度 ≥ 视口 90%)不算页头。
+ * @returns {number} 无固定页头返回 0
+ */
+export function fixedTopInset() {
+  let bottom = 0;
+  try {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    [24, Math.round(vw * 0.5), vw - 24].forEach((x) => {
+      let el = document.elementFromPoint(x, 1);
+      for (let i = 0; el && el !== document.body && i < 8; i++, el = el.parentElement) {
+        if (!/fixed|sticky/.test(window.getComputedStyle(el).position)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.height < vh * 0.9 && r.width > vw * 0.5) bottom = Math.max(bottom, r.bottom);
+        break;
+      }
+    });
+  } catch (e) { /* 无布局环境忽略 */ }
+  return Math.round(bottom);
+}
+
 /* ---------------- 弹层(下拉菜单/颜色面板/表情) ---------------- */
 let openPopover = null;
 export function closePopover() {
-  if (openPopover) { openPopover.destroy(); openPopover = null; }
+  /* 先清引用再销毁:销毁会让弹层内持有焦点的元素同步触发 blur,若其 blur 处理里再次
+     关闭弹层(取色器十六进制输入框"失焦即应用"即此情形),重入时引用已空 → 空操作;
+     否则会对同一节点二次 removeChild 抛 NotFoundError(浏览器实测发现) */
+  const p = openPopover;
+  openPopover = null;
+  if (p) p.destroy();
 }
 /**
  * anchorEl 下方弹出 content;点击外部/滚动关闭;单例。
+ * opts: { className, onClose }——onClose 在弹层以任何方式关闭时调用
  */
 export function popover(anchorEl, content, opts) {
   closePopover();
+  const onClose = opts && typeof opts.onClose === 'function' ? opts.onClose : null;
   const wrap = h('div', { class: 'lry-popover' + (opts && opts.className ? ' ' + opts.className : '') }, content);
   document.body.appendChild(wrap);
   const rect = anchorEl.getBoundingClientRect();
@@ -50,12 +83,15 @@ export function popover(anchorEl, content, opts) {
   else {
     let left = Math.min(rect.left, window.innerWidth - wrap.offsetWidth - 8);
     wrap.style.left = Math.max(8, left) + 'px';
-    wrap.style.top = (rect.bottom + 4) + 'px';
+    /* 下方放不下(锚点贴近视口底部,如状态栏字数/末行按钮)且上方放得下 → 向上弹出。
+       原先一律向下,贴底的锚点弹出的面板会被视口裁掉(2026-11-24 浏览器实测发现) */
+    const below = rect.bottom + 4;
+    const above = rect.top - wrap.offsetHeight - 4;
+    wrap.style.top = (below + wrap.offsetHeight > window.innerHeight - 4 && above >= 4 ? above : below) + 'px';
   }
   const onDoc = (e) => {
     if (!wrap.contains(e.target) && e.target !== anchorEl && !anchorEl.contains(e.target)) closePopover();
-  };
-  /* 滚动关闭策略:仅当滚动发生在弹层与触发器之外时关闭——
+  };  /* 滚动关闭策略:仅当滚动发生在弹层与触发器之外时关闭——
      弹层自身滚动(菜单列表/颜色面板)与页面滚动(斜杠菜单跟随性)不关闭;
      编辑器内容区滚动会导致锚点错位,该场景关闭。 */
   const onScroll = (e) => {
@@ -78,6 +114,9 @@ export function popover(anchorEl, content, opts) {
       document.removeEventListener('touchstart', onDoc);
       window.removeEventListener('scroll', onScroll, { capture: true });
       if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      /* 关闭回调:无论因何关闭(外部点击/滚动/单例替换/显式关闭)都会触发,
+         供触发方同步"开/合"状态(如代码块语言按钮) */
+      if (onClose) onClose();
     }
   };
   return openPopover;

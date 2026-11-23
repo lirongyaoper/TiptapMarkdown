@@ -651,3 +651,223 @@ textarea.lry-input { resize: vertical; }
 .lry-editor .ProseMirror .lry-node-hidden { display: none; }
 .lry-editor .ProseMirror .lry-heading-folded { opacity: .55; }
 .lry-editor .ProseMirror .lry-heading-folded > *::after { content: ' ⋯(已折叠)'; font-size: 12px; color: #98a0ad; font-weight: 400; }
+
+/* ====================================================================
+ * 2026-11-21 现代编辑器增强:划词浮动工具条 / 图片等比缩放手柄
+ * ==================================================================== */
+
+/* ---- 划词浮动工具条(选区上方深色胶囊条,full 与 lite 共用样式) ---- */
+.lry-bubble {
+  position: fixed;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: #1f2733;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .28);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.lry-bubble-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #e6ebf2;
+  cursor: pointer;
+  padding: 0;
+}
+.lry-bubble-btn:hover { background: rgba(255, 255, 255, .14); }
+.lry-bubble-btn.lry-bubble-on { background: #1ab394; color: #fff; }
+.lry-bubble-btn .lry-bubble-icon svg { width: 15px; height: 15px; display: block; }
+.lry-bubble-sep { width: 1px; height: 16px; margin: 0 3px; background: rgba(255, 255, 255, .18); }
+
+/* ---- 图片等比缩放手柄(NodeView 外壳 + 右下角拖拽点) ---- */
+.lry-editor .lry-imgwrap { position: relative; display: inline-block; max-width: 100%; }
+.lry-editor .lry-imgwrap img { max-width: 100%; height: auto; }
+.lry-editor .lry-imgwrap-center { display: block; text-align: center; }
+.lry-editor .lry-imgwrap .lry-img-resize {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: #1ab394;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.lry-editor .lry-imgwrap:hover .lry-img-resize,
+.lry-editor .lry-imgwrap.ProseMirror-selectednode .lry-img-resize { opacity: 1; }
+.lry-editor .lry-imgwrap.ProseMirror-selectednode { outline: 1px dashed #1ab394; border-radius: 2px; }
+
+/* ====================================================================
+ * 2026-11-23 v1.2.0 编辑体验升级
+ * ==================================================================== */
+
+/* ---- 上下文工具条(链接/图片/表格):复用 bubble 深色胶囊;按钮类名同 bubble ---- */
+.lry-ctxbar {
+  position: fixed;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: #1f2733;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .28);
+  user-select: none;
+  -webkit-user-select: none;
+  max-width: calc(100vw - 16px);
+  flex-wrap: wrap; /* 窄屏放不下时换行,不横向溢出 */
+  justify-content: center;
+}
+.lry-ctxbar .lry-bubble-btn.lry-ctx-txt { width: auto; min-width: 30px; padding: 0 7px; font-size: 12px; }
+.lry-ctxbar .lry-ctx-flip .lry-bubble-icon { transform: rotate(180deg); } /* "上方/左侧插入"用同图标翻转 */
+.lry-ctx-link {
+  display: inline-block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #cfe0ff; font-size: 12px; text-decoration: none; padding: 0 8px; line-height: 28px; border-radius: 5px;
+}
+.lry-ctx-link:hover { background: rgba(255, 255, 255, .14); color: #fff; }
+
+/* ---- 表格列宽拖拽手柄(单元格右内侧;悬停/拖拽时显示蓝线) ---- */
+.lry-editor .ProseMirror table td,
+.lry-editor .ProseMirror table th { position: relative; }
+.lry-editor .ProseMirror .lry-col-resize {
+  position: absolute; top: 0; bottom: 0; right: -5px; width: 10px;
+  cursor: col-resize; z-index: 4; touch-action: none;
+}
+.lry-editor .ProseMirror .lry-col-resize::after {
+  content: ''; position: absolute; top: 18%; bottom: 18%; left: 4px; width: 2px;
+  border-radius: 2px; background: rgba(26, 102, 214, 0); transition: background .12s;
+}
+.lry-editor .ProseMirror .lry-col-resize:hover::after { background: #1a66d6; }
+.lry-editor .ProseMirror.lry-col-resizing { cursor: col-resize; user-select: none; -webkit-user-select: none; }
+.lry-editor .ProseMirror.lry-col-resizing .lry-col-resize::after { background: #1a66d6; }
+
+/* ---- 查找替换浮动条(编辑器包装内、工具栏下方右侧;不随内容滚动) ---- */
+.lry-findbar {
+  position: absolute; right: 12px; z-index: 40; background: #fff; border: 1px solid #dfe3ea;
+  border-radius: 8px; box-shadow: 0 6px 24px rgba(20, 30, 60, .16); padding: 6px;
+  max-width: calc(100% - 24px);
+}
+.lry-find-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.lry-find-q { width: 170px; }
+.lry-find-r { width: 150px; }
+.lry-find-count { font-size: 12px; color: #8a919c; min-width: 44px; text-align: center; white-space: nowrap; }
+.lry-find-err { color: #cf1322; }
+.lry-find-tg {
+  height: 26px; min-width: 26px; padding: 0 6px; border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: #4a5160; font-size: 12px; cursor: pointer;
+}
+.lry-find-tg:hover { background: #eef1f6; }
+.lry-find-tg.lry-btn-active { background: #dceafe; color: #1a66d6; border-color: #8fbcf7; }
+.lry-find-bad .lry-find-q { border-color: #cf1322; box-shadow: 0 0 0 2px rgba(207, 19, 34, .12); }
+.lry-find-rep { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding-top: 6px; border-top: 1px solid #eef0f4; }
+.lry-find-rep[hidden] { display: none; }
+.lry-find-rep .lry-btn { padding: 4px 10px; }
+.lry-editor .ProseMirror .lry-find-match { background: rgba(255, 213, 79, .65); border-radius: 2px; }
+.lry-editor .ProseMirror .lry-find-active { background: #ff9f1a; box-shadow: 0 0 0 1px #d97706; }
+
+/* ---- 取色器:自定义取色 + 最近使用 ---- */
+.lry-color-panel { min-width: 224px; }
+.lry-color-recent-label { grid-column: 1 / -1; margin-top: 8px; font-size: 11px; color: #98a0ad; }
+.lry-color-recent { grid-column: 1 / -1; }
+.lry-color-actions { align-items: center; gap: 6px; }
+.lry-color-actions .lry-color-native { flex: none; cursor: pointer; padding: 1px; width: 34px; height: 26px; }
+.lry-color-hex { width: 92px; flex: 1; min-width: 0; padding: 4px 8px; font-size: 12px; }
+.lry-color-hex.lry-color-bad { border-color: #cf1322; }
+
+/* ---- 状态栏字数(可点击查看详情) ---- */
+.lry-wordcount-btn { cursor: pointer; border-radius: 4px; padding: 0 4px; }
+.lry-wordcount-btn:hover { background: #e8ebf1; color: #333a46; }
+.lry-stats { min-width: 214px; }
+.lry-stats-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 8px; font-size: 13px; color: #333a46; }
+.lry-stats-row b { font-weight: 600; color: #1f2430; font-variant-numeric: tabular-nums; }
+.lry-stats .lry-tip { padding: 4px 8px 0; }
+
+/* ---- 上传进度小条(右下角) ---- */
+.lry-upload-pill {
+  position: absolute; right: 12px; bottom: 30px; z-index: 25; max-width: 70%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: #1f2733; color: #fff; font-size: 12px; padding: 5px 12px;
+  border-radius: 999px; box-shadow: 0 4px 14px rgba(15, 23, 42, .24);
+}
+
+/* ---- 斜杠面板(原地重绘;标签页换行、列表限高可滚) ---- */
+.lry-slash-pop { min-width: 280px; max-width: 92vw; }
+.lry-slash-tabs { display: flex; gap: 2px; border-bottom: 1px solid #eceff4; margin-bottom: 4px; flex-wrap: wrap; }
+.lry-slash-tabs .lry-tab { font-size: 12px; padding: 5px 9px; }
+.lry-slash-list { max-height: 300px; overflow-y: auto; }
+
+/* ====================================================================
+ * 2026-11-24 代码块编辑态高亮 / 语言下拉 / 预告下一行
+ * ==================================================================== */
+
+/* ---- 编辑态令牌着色 ----
+   令牌色经 CSS 变量下发,默认值即 one-dark 调色板(其底色/前景色与代码块既有配色一致,
+   未指定主题的代码块观感只多出语法色)。带主题的代码块由 ui/code-highlight.js 注入的
+   .lry-codebox.theme-xxx 规则覆盖(与前台同一份调色板数据)。只按首个类名着色,与前台一致 */
+.lry-codebox {
+  --lry-hl-comment: #5c6370; --lry-hl-keyword: #c678dd; --lry-hl-string: #98c379;
+  --lry-hl-number: #d19a66; --lry-hl-title: #61afef; --lry-hl-attr: #d19a66;
+  --lry-hl-symbol: #abb2bf; --lry-hl-meta: #abb2bf; --lry-hl-literal: #56b6c2;
+  --lry-hl-built_in: #56b6c2; --lry-hl-type: #e5c07b; --lry-hl-addition: #98c379;
+  --lry-hl-deletion: #e06c75; --lry-hl-link: #61afef;
+}
+.lry-codebox .hljs-comment { color: var(--lry-hl-comment); }
+.lry-codebox .hljs-keyword { color: var(--lry-hl-keyword); }
+.lry-codebox .hljs-string { color: var(--lry-hl-string); }
+.lry-codebox .hljs-number { color: var(--lry-hl-number); }
+.lry-codebox .hljs-title { color: var(--lry-hl-title); }
+.lry-codebox .hljs-attr { color: var(--lry-hl-attr); }
+.lry-codebox .hljs-symbol { color: var(--lry-hl-symbol); }
+.lry-codebox .hljs-meta { color: var(--lry-hl-meta); }
+.lry-codebox .hljs-literal { color: var(--lry-hl-literal); }
+.lry-codebox .hljs-built_in { color: var(--lry-hl-built_in); }
+.lry-codebox .hljs-type { color: var(--lry-hl-type); }
+.lry-codebox .hljs-addition { color: var(--lry-hl-addition); }
+.lry-codebox .hljs-deletion { color: var(--lry-hl-deletion); }
+.lry-codebox .hljs-link { color: var(--lry-hl-link); }
+
+/* ---- 顶栏语言名 → 可点的下拉 ---- */
+.lry-codebar-lang {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 0; background: transparent; padding: 2px 8px; border-radius: 4px;
+  color: #1554b3; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.lry-codebar-lang::after { content: '▾'; font-size: 10px; opacity: .6; }
+.lry-codebar-lang:hover { background: #dceafe; }
+.lry-codelang-pop { width: 264px; }
+.lry-codelang-list { max-height: 300px; overflow-y: auto; margin-top: 6px; }
+
+/* ---- 预告下一行 ----
+   末块不是空段落时,文末画一行不可编辑的待写行:行首「+」常显,点行内任意处新起段落 */
+.lry-next-line {
+  position: relative; display: block; min-height: 27px; padding: 2px 0 26px;
+  cursor: text; user-select: none; -webkit-user-select: none;
+}
+.lry-next-hint { display: block; font-size: 15px; line-height: 27px; color: #c3c9d3; pointer-events: none; }
+.lry-next-line:hover .lry-next-hint { color: #8a919c; }
+/* 预告行自身在编辑区内容盒内(已被根元素 30px 左内边距推移),其「+」要再多退 30px
+   才与各块的普通行柄对齐;否则桌面端偏右、窄屏上会压住提示文字 */
+.lry-editor .lry-next-line .lry-next-add { left: 2px; transform: translateX(-56px); margin-top: 3px; opacity: .6; }
+@media (max-width: 1023px) {
+  .lry-editor .lry-next-line .lry-next-add { left: -26px; transform: none; }
+}
+.lry-editor .lry-next-line:hover .lry-next-add,
+.lry-editor .lry-next-line .lry-next-add:hover,
+.lry-editor .lry-next-line .lry-next-add:focus-visible { opacity: 1; }
+/* 末块已是空段落:它就是待写行,行柄常显 */
+.lry-editor .lry-row-handle.lry-row-handle-next { opacity: .6; }
+.lry-editor .lry-row-handle.lry-row-handle-next:hover,
+.lry-editor .lry-row-handle.lry-row-handle-next:focus-visible { opacity: 1; }

@@ -99,13 +99,13 @@ export const TOOLBAR_FULL = [
     'insertorderedlist', 'insertunorderedlist', '|', 'selectall', 'cleardoc', '|',
     'rowspacingtop', 'rowspacingbottom', 'lineheight', 'letterspacing', '|',
     'customstyle', 'paragraph', 'fontfamily', 'fontsize', '|',
-    'directionalityltr', 'directionalityrtl', 'indent', 'outdent', '|',
+    'directionalityltr', 'directionalityrtl', 'indent', 'outdent', 'firstlineindent', '|',
     'justifyleft', 'justifycenter', 'justifyright', 'justifyjustify', '|',
     'touppercase', 'tolowercase', '|', 'link', 'unlink', 'anchor', '|',
     'imagenone', 'imageleft', 'imagecenter', 'imageright', '|',
     'simpleupload', 'insertimage', 'emotion', 'scrawl', 'insertvideo', 'insertaudio', 'attachment', 'insertframe', 'insertcode', 'pagebreak', 'template', 'background', 'formula', 'horizontal', 'date', 'time', 'spechars', 'wordimage', '|',
     'inserttable', 'insertrow', 'insertcol', 'deleterow', 'deletecol', 'mergecells', 'mergeright', 'mergedown', 'splittocells', 'splittorows', 'splittocols', 'edittable', 'edittd', 'insertparagraphbeforetable', 'deletetable', '|',
-    'print', 'preview', 'searchreplace', '|', 'contentimport', 'exportmd', 'ai', 'help']
+    'print', 'preview', 'searchreplace', '|', 'contentimport', 'export', 'ai', 'help']
 ];
 
 /* mini 工具栏(对齐旧 form::editor_mini) */

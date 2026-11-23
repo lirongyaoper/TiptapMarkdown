@@ -158,3 +158,51 @@
   .lry-tool-btn { height: 34px; min-width: 34px; }
   .lry-tool-btn .lry-tool-icon svg { width: 17px; height: 17px; }
 }
+
+/* 贴图(images:true,2026-11-21):编辑区与只读态图片自适应宽度 */
+.lry-lite-content img { max-width: 100%; height: auto; border-radius: 4px; margin: 4px 0; }
+
+/* ====================================================================
+ * 2026-11-21 现代编辑器增强:划词气泡条 / 待办清单
+ * ==================================================================== */
+
+/* 划词浮动工具条(与 full 版同皮肤) */
+.lry-bubble {
+  position: fixed;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: #1f2733;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .28);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.lry-bubble-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #e6ebf2;
+  cursor: pointer;
+  padding: 0;
+}
+.lry-bubble-btn:hover { background: rgba(255, 255, 255, .14); }
+.lry-bubble-btn.lry-bubble-on { background: #1ab394; color: #fff; }
+.lry-bubble-btn .lry-bubble-icon svg { width: 15px; height: 15px; display: block; }
+.lry-bubble-sep { width: 1px; height: 16px; margin: 0 3px; background: rgba(255, 255, 255, .18); }
+
+/* 待办清单(编辑态:官方 NodeView 的 label+checkbox;序列化态:☑/☐ 字符) */
+.lry-lite .ProseMirror ul.lry-task { list-style: none; padding-left: 6px; }
+.lry-lite .ProseMirror ul.lry-task li { position: relative; padding-left: 26px; }
+.lry-lite .ProseMirror ul.lry-task li > label { position: absolute; left: 0; top: 1px; }
+.lry-lite .ProseMirror ul.lry-task li > label input[type=checkbox] { accent-color: #1ab394; width: 16px; height: 16px; }
+.lry-lite .ProseMirror ul.lry-task li.lry-task-done > div { color: #9aa1ab; text-decoration: line-through; }
+.lry-lite .ProseMirror ul.lry-task li > div { margin: 0; }
+.lry-lite-readonly ul.lry-task li.lry-task-done { color: #9aa1ab; text-decoration: line-through; }

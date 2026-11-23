@@ -170,13 +170,16 @@ export function mountMarkdownMode(inst) {
   function applyBlockDiff(newHtml) {
     const ed = inst.editor;
     const dom = new DOMParser().parseFromString('<body>' + newHtml + '</body>', 'text/html');
-    const newBlocks = [...dom.body.children].map((el) => el.outerHTML);
+    /* showdown 给 h1-h6 生成锚点 id,而 Tiptap 存储时丢弃 id → 序列化永远不等,
+       首块会被误判为"变更"而反复重插。比较/插入前统一剥掉 id(2026-11-22)。 */
+    const stripHeadingId = (html) => html.replace(/(<h[1-6]\b[^>]*?)\s+id="[^"]*"/gi, '$1');
+    const newBlocks = [...dom.body.children].map((el) => stripHeadingId(el.outerHTML));
     const serializer = DOMSerializer.fromSchema(ed.schema);
     const oldBlocks = [];
     ed.state.doc.forEach((node) => {
       const div = document.createElement('div');
       div.appendChild(serializer.serializeNode(node));
-      oldBlocks.push(div.innerHTML);
+      oldBlocks.push(stripHeadingId(div.innerHTML));
     });
     let p = 0;
     while (p < oldBlocks.length && p < newBlocks.length && oldBlocks[p] === newBlocks[p]) p++;
@@ -184,7 +187,10 @@ export function mountMarkdownMode(inst) {
     while (s < oldBlocks.length - p && s < newBlocks.length - p
       && oldBlocks[oldBlocks.length - 1 - s] === newBlocks[newBlocks.length - 1 - s]) s++;
     const from = posOfTopBlock(ed, p);
-    const to = posOfTopBlockEnd(ed, oldBlocks.length - s);
+    /* 变更区为块 [p, old.length-s-1],终点取该区最后一块的块尾。
+       2026-11-22 修复 off-by-one:原取 old.length-s(即首个保留尾块)的块尾,
+       导致保留尾块被并入替换范围整块删除(高亮块内回车 → 预览侧卡片消失即此因)。 */
+    const to = posOfTopBlockEnd(ed, oldBlocks.length - s - 1);
     if (from === null || to === null) {
       suppressPreviewSync = true;
       ed.commands.setContent(newHtml);

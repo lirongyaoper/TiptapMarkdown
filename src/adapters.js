@@ -15,7 +15,7 @@ const memoryStore = { seq: 0, images: [] };
 /** 默认:内存适配器(图片 dataURI;AI mock) */
 export const memoryAdapter = {
   name: 'memory',
-  async upload(file, onProgress) {
+  async upload(file, onProgress, extra) {
     const url = await new Promise((res, rej) => {
       const FR = (typeof window !== 'undefined' && window.FileReader) || (typeof FileReader !== 'undefined' ? FileReader : null);
       if (!FR) {
@@ -36,9 +36,11 @@ export const memoryAdapter = {
       fr.onerror = () => rej(new Error('读取文件失败'));
       fr.readAsDataURL(file);
     });
-    memoryStore.images.unshift({ url, title: file.name, mtime: Date.now() });
+    /* 只有图片进图库(在线管理只列图片);视频/音频/附件同样返回 dataURI,供拖入即传功能演示 */
+    const isImg = (extra && extra.filetype === 1) || /^image\//.test(file.type || '') || /\.(png|jpe?g|gif|bmp|webp|avif|svg)$/i.test(file.name || '');
+    if (isImg) memoryStore.images.unshift({ url, title: file.name, mtime: Date.now() });
     if (onProgress) onProgress(100);
-    return { url, attid: ++memoryStore.seq, delurl: '', title: file.name, size: file.size, filetype: 1 };
+    return { url, attid: ++memoryStore.seq, delurl: '', title: file.name, size: file.size, filetype: isImg ? 1 : 2 };
   },
   async list(filetype, start) {
     const all = filetype === 1 ? memoryStore.images : [];
@@ -48,22 +50,17 @@ export const memoryAdapter = {
     const list = [];
     for (const s of sources) {
       try {
-        const blob = await (await fetch(s)).blob();
-        const FR = (typeof window !== 'undefined' && window.FileReader) || (typeof FileReader !== 'undefined' ? FileReader : null);
+      const blob = await (await fetch(s)).blob();
+      const FR = (typeof window !== 'undefined' && window.FileReader) || (typeof FileReader !== 'undefined' ? FileReader : null);
       if (!FR) {
         /* Node 环境(无 DOM):Buffer 兜底转 dataURI,便于服务端/测试使用 */
-        if (typeof Buffer !== 'undefined' && file.arrayBuffer) {
-          (async () => {
-            try {
-              const buf = Buffer.from(await file.arrayBuffer());
-              res('data:' + (file.type || 'application/octet-stream') + ';base64,' + buf.toString('base64'));
-            } catch (e) { rej(e); }
-          })();
-          return;
-        }
-        throw new Error('当前环境无 FileReader');
+        const buf = Buffer.from(await blob.arrayBuffer());
+        const url = 'data:' + (blob.type || 'application/octet-stream') + ';base64,' + buf.toString('base64');
+        memoryStore.images.unshift({ url, title: s.slice(-24), mtime: Date.now() });
+        list.push({ state: 'SUCCESS', url, source: s });
+        continue;
       }
-        const url = await new Promise((res) => { const fr = new FR(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+      const url = await new Promise((res) => { const fr = new FR(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
         memoryStore.images.unshift({ url, title: s.slice(-24), mtime: Date.now() });
         list.push({ state: 'SUCCESS', url, source: s });
       } catch (e) { list.push({ state: 'ERROR', source: s }); }
@@ -112,7 +109,11 @@ export function createUrlAdapter(opts) {
     async upload(file, onProgress, extra) {
       const form = new FormData();
       form.append(o.fileField, file);
-      if (extra) Object.keys(extra).forEach((k) => form.append(k, extra[k]));
+      /* extra 里只带可序列化的值:onProgress 是回调、module 可能未定义,都不该进表单 */
+      if (extra) Object.keys(extra).forEach((k) => {
+        const v = extra[k];
+        if (typeof v !== 'function' && v !== undefined && v !== null) form.append(k, v);
+      });
       if (o.csrfToken) form.append('lry_csrf_token', typeof o.csrfToken === 'function' ? o.csrfToken() : o.csrfToken);
       return post(o.base.replace(/&a=\w+.*$/, '') + (o.base.includes('?') ? '&a=upload' : '/upload'), form);
     },

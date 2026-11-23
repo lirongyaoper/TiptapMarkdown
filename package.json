@@ -1,7 +1,7 @@
 {
   "name": "lry-editor",
-  "version": "1.1.1",
-  "description": "开源多文稿富文本编辑器 — Tiptap 内核,语雀式体验:Markdown 双向分栏、画板(mermaid)、折叠块、分栏布局、任务列表、代码块增强、行柄菜单、斜杠面板、AI 面板。附 lite 简约版(留言/评论场景,纯文字排版)。零依赖引入,适配器可接任意后端。",
+  "version": "1.2.1",
+  "description": "开源多文稿富文本编辑器 — Tiptap 内核,语雀式体验:Markdown 双向分栏、画板(mermaid)、折叠块、分栏布局、任务列表、代码块(编辑态语法高亮/语言下拉)、上下文工具条、划词工具条、行柄菜单、斜杠面板、查找替换、AI 面板。附 lite 简约版(留言/评论场景,纯文字排版)。零依赖引入,适配器可接任意后端。",
   "main": "dist/lry-editor.js",
   "module": "src/index.js",
   "exports": {
@@ -32,6 +32,7 @@
     "build:lite": "vite build --config vite.lite.config.js",
     "watch:lite": "vite build --config vite.lite.config.js --watch",
     "test": "node test/os-test.mjs",
+    "test:browser": "node test/os-browser.mjs",
     "demo": "node demo/_serve.mjs"
   },
   "keywords": [
@@ -47,7 +48,7 @@
   "license": "MIT",
   "devDependencies": {
     "jsdom": "^31.0.1",
-    "puppeteer-core": "^19",
+    "puppeteer-core": "^25.17.0",
     "vite": "^6"
   },
   "peerDependencies": {

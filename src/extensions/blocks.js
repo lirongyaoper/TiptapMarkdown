@@ -12,6 +12,7 @@ import { Node, Extension } from '@tiptap/core';
 import Paragraph from '@tiptap/extension-paragraph';
 import Heading from '@tiptap/extension-heading';
 import Blockquote from '@tiptap/extension-blockquote';
+import { Plugin } from '@tiptap/pm/state';
 
 export const styleToObj = (style) => {
   const obj = {};
@@ -211,5 +212,56 @@ export const BlockStyleCommands = Extension.create({
         return touched;
       }
     };
+  }
+});
+
+/* 首行自动缩进(2026-11-18):模式开关,非一次性排版。
+   开启 = 全部顶层段落 text-indent:2em,此后新输入/粘贴/回车分段的顶层段落自动续用
+   (appendTransaction 兜底);再次点击全部去除。仅作用顶层段落 —— 引用/列表/折叠体
+   等容器内的段落不缩进,符合中文正文排版习惯;textIndent 属性由 LryParagraph
+   序列化(style="text-indent:2em"),roundtrip 幂等无需额外处理。 */
+export const FirstLineIndent = Extension.create({
+  name: 'lryFirstLineIndent',
+  addOptions() {
+    return { indent: '2em' };
+  },
+  addStorage() {
+    return { enabled: false };
+  },
+  addCommands() {
+    return {
+      toggleFirstLineIndent: () => ({ state, tr }) => {
+        const value = this.storage.enabled ? null : this.options.indent;
+        this.storage.enabled = !this.storage.enabled;
+        state.doc.forEach((node, pos) => {
+          if (node.type.name === 'paragraph' && node.attrs.textIndent !== value) {
+            tr.setNodeMarkup(pos, null, { ...node.attrs, textIndent: value });
+          }
+        });
+        /* 空文档无段落时也返回 true,保证命令入链(mode 状态已翻转) */
+        return true;
+      }
+    };
+  },
+  addProseMirrorPlugins() {
+    const ext = this;
+    return [
+      new Plugin({
+        appendTransaction: (transactions, oldState, newState) => {
+          if (!ext.storage.enabled) return null;
+          if (!transactions.some((t) => t.docChanged)) return null;
+          const tr = newState.tr;
+          let touched = false;
+          newState.doc.forEach((node, pos) => {
+            if (node.type.name === 'paragraph' && !node.attrs.textIndent) {
+              tr.setNodeMarkup(pos, null, { ...node.attrs, textIndent: ext.options.indent });
+              touched = true;
+            }
+          });
+          /* 补齐后二次进入必然无缺失段落,天然终止;不产生额外历史步骤 */
+          return touched ? tr : null;
+        }
+      })
+    ];
   }
 });

@@ -12,6 +12,13 @@ import { NodeSelection } from '@tiptap/pm/state';
 export const TyporaRules = Extension.create({
   name: 'lryTyporaRules',
 
+  addKeyboardShortcuts() {
+    return {
+      /* 高亮(2026-11-23,Notion/语雀同款 Ctrl/⌘+Shift+H;官方 Highlight 扩展无默认快捷键) */
+      'Mod-Shift-h': () => this.editor.commands.toggleMark('lryMark')
+    };
+  },
+
   addInputRules() {
     const { editor } = this;
     return [

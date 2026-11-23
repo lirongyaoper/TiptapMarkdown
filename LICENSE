@@ -25,5 +25,6 @@ SOFTWARE.
  - showdown.js (MIT) — Markdown pipeline
  - mermaid (MIT) — diagram rendering
  - KaTeX (MIT) — formula rendering
+ - highlight.js (BSD-3-Clause) — code syntax highlighting (license text: third-party/highlight/LICENSE)
  Runtime dependencies @tiptap/* (MIT), lowlight (BSD-3) are resolved via
  npm install and bundled into dist by the build.

@@ -61,7 +61,7 @@ export function openScrawlDialog(inst) {
       try {
         const blob = await (await fetch(dataUrl)).blob();
         const f = new File([blob], 'scrawl-' + Date.now() + '.png', { type: 'image/png' });
-        const r = await uploadFile(f, { filetype: 1, module: inst.options.module });
+        const r = await uploadFile(f, { filetype: 1, module: inst.options.module }, inst);
         inst.editor.chain().focus().setImage({ src: r.url, title: '涂鸦' }).run();
         toast('涂鸦已插入', 'success');
       } catch (e) { toast(e.message, 'error'); return false; }

@@ -2,6 +2,8 @@
 
 lry-editor 的所有服务端交互(上传/在线管理/远程抓图/AI)都通过 adapter 对象注入。内置两个:`memory`(默认,demo 用)与 `createUrlAdapter` 工厂。本文定义自定义适配器的完整契约。
 
+两种注入方式:全局 `LRYEditor.setAdapter(obj)`,或按实例 `LRYEditor.create({ adapter: obj })`(优先于全局)。拖入/粘贴上传、对话框上传、在线管理、图转存、lite 贴图——**实例的每一个入口都走该实例自己的 adapter**;没传 `adapter` 的实例才用全局。
+
 ## 方法总表
 
 | 方法 | 必需 | 签名 | 返回 |
@@ -17,6 +19,7 @@ lry-editor 的所有服务端交互(上传/在线管理/远程抓图/AI)都通�
 ### upload(file, onProgress, extra)
 
 - `filetype`:1=图片,2=文件(视频/音频/文档)
+- 视频/音频/附件拖入或粘贴进编辑器时同样调用 `upload`(`filetype: 2`):返回的 `url` 落入 `<video>` / `<audio>` / 文件卡;不需要此行为时 `create({ dropFiles: false })` 关闭(`.md` 文件始终按 Markdown 导入,不走上传)
 - `onProgress(pct)`:0-100 进度回调(可选)
 - 返回 `url` 必须是可直接放入 `<img src>` / `<a href>` 的地址(dataURI、相对路径、绝对 URL 均可)
 - 抛异常即上传失败,编辑器 toast 展示 `e.message`
@@ -25,6 +28,7 @@ lry-editor 的所有服务端交互(上传/在线管理/远程抓图/AI)都通�
 
 - 在线管理面板(图片对话框)的数据源;`start` 分页起点,建议每页 40
 - `total` 用于判断是否还有下一页
+- 图库只列 `list(1, …)`(图片);`filetype: 2` 的上传结果不出现在图库
 
 ### catch(sources)
 
@@ -36,6 +40,7 @@ lry-editor 的所有服务端交互(上传/在线管理/远程抓图/AI)都通�
 - 入参为 OpenAI 兼容消息数组;返回模型完整文本
 - 流式:内部消费 SSE(参考 `createUrlAdapter` 中 aiUrl 实现,支持 OpenAI `delta.content` 与 `{type:'data'}` 两种帧)
 - AI 面板对输出做 mermaid 头部识别(`graph `/`mindmap`/… 开头)自动转为画板块
+- 结果的插入方式按内容判定:含 Markdown 结构(标题/列表/代码围栏,含 ```` ```mermaid ```` 围栏)的结果转为富文本块插入;纯文本按文本插入,其中的 `<div>` 之类不会被当成标签
 
 ## createUrlAdapter 配置项
 

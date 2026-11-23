@@ -1,11 +1,11 @@
 /**
- * AI 助手面板(2026-11-15 由旧 Vue2 对话框原生重写,对齐 attachment/editor/ai 新端点)
+ * AI 助手面板:请求经 adapter.ai(messages)(memory=演示 mock,url=OpenAI 兼容 SSE,自定义=任意实现)。
  * 功能:翻译/续写/摘要/丰富/优化整篇 + 自由输入;SSE 流式;插入/替换选区。
  */
 import { h, dialog, toast } from '../ui/dom.js';
 import { getAdapter } from '../adapters.js';
+import { ensureShowdown, safeMdToHtml, normalizeYuqueHtml } from '../md/ensure.js';
 
-const CSRF = () => (window.LRY_CSRF_TOKEN || window.lry_csrf_token || '');
 
 const FUNCTIONS = [
   { key: 'translate', label: '翻译', prompt: '请将下面的内容翻译成英文,保持原有格式:\n\n{selectText}' },
@@ -26,6 +26,50 @@ function looksMermaid(text) {
   return MERMAID_HEADS.some((h) => t.startsWith(h));
 }
 
+/* 结果是否带 Markdown 结构(代码围栏/标题/粗体/列表/链接/表格线) */
+export function looksMarkdown(text) {
+  const t = String(text || '');
+  return /^```/m.test(t)
+    || /^#{1,6}\s+\S/m.test(t)
+    || /\*\*[^*\n]+\*\*/.test(t)
+    || /^\s*[-*+]\s+\S.*\n\s*[-*+]\s+\S/m.test(t)
+    || /^\s*\d+[.)]\s+\S/m.test(t)
+    || /\[[^\]\n]+\]\([^)\s]+\)/.test(t)
+    || /^\s*\|.+\|\s*$/m.test(t);
+}
+
+/**
+ * 把 AI 结果落进编辑器(2026-11-23 智能插入):
+ * - mermaid 源 → 画板块
+ * - Markdown 结构 → showdown 转富文本(```mermaid 围栏归一为画板块)
+ * - 其余 → 按纯文本逐行成段(旧实现把结果当 HTML 解析,代码里的 <div> 会被吞成真标签)
+ * range 给定则替换该区间,否则插入到当前选区。
+ */
+export async function insertAiResult(inst, text, range) {
+  const ed = inst.editor;
+  const t = String(text || '').trim();
+  if (!t) return false;
+  const target = range || { from: ed.state.selection.from, to: ed.state.selection.to };
+  if (looksMermaid(t)) {
+    const src = t.replace(/^```[a-z]*\n?|```$/g, '').trim();
+    ed.chain().focus().insertContentAt(target, { type: 'lryMermaid', attrs: { src } }).run();
+    return true;
+  }
+  if (looksMarkdown(t)) {
+    try { await ensureShowdown(); } catch (e) { /* showdown 不可用:退回纯文本 */ }
+    const html = safeMdToHtml(t);
+    if (html) {
+      ed.chain().focus().insertContentAt(target, normalizeYuqueHtml(html)).run();
+      return true;
+    }
+  }
+  const nodes = t.split(/\r?\n/).map((line) => ({
+    type: 'paragraph', content: line ? [{ type: 'text', text: line }] : []
+  }));
+  ed.chain().focus().insertContentAt(target, nodes).run();
+  return true;
+}
+
 export function mountAiPanel(inst) {
   inst.aiApi = { open: () => openPanel(inst) };
 }
@@ -42,18 +86,13 @@ function openPanel(inst) {
   let streamAbort = null;
 
   const insertBtn = h('button', { type: 'button', class: 'lry-btn lry-btn-primary', onclick: () => {
-    if (looksMermaid(resultText)) {
-      /* AI 画图输出 → 画板块 */
-      ed.chain().focus().insertMermaid(resultText.trim().replace(/^```[a-z]*\n?|```$/g, '')).run();
-    } else {
-      ed.chain().focus().insertContent(resultText).run();
-    }
+    insertAiResult(inst, resultText).catch((e) => toast('插入失败:' + e.message, 'error'));
     api.close();
   } }, '插入到光标处');
   const replaceBtn = h('button', { type: 'button', class: 'lry-btn', onclick: () => {
     const { from, to } = ed.state.selection;
     if (from === to) { toast('请先选中要替换的内容', 'error'); return; }
-    ed.chain().focus().insertContentAt({ from, to }, resultText).run();
+    insertAiResult(inst, resultText, { from, to }).catch((e) => toast('替换失败:' + e.message, 'error'));
     api.close();
   } }, '替换选区');
   actions.append(insertBtn, replaceBtn);

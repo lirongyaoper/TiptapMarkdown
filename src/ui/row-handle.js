@@ -7,9 +7,12 @@
  *   插入:图片/附件/状态卡/画板/思维导图/流程图/UML/公式/分割线/表情
  * 实现:操作统一「选区置整块 → 复用既有命令链」,折叠/高亮块经
  * DOMSerializer 序列化块内容后重组节点。
+ *
+ * 预告下一行(2026-11-24):末块不是空段落时在文末另画一行待写行(行首「+」常显),
+ * 点它在文末新起段落;末块已是空段落时该行的「+」常显。见 isWaitingLine / nextLineWidget。
  */
 import { Extension } from '@tiptap/core';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { DOMSerializer } from '@tiptap/pm/model';
 import { h, popover, closePopover, toast } from './dom.js';
@@ -19,6 +22,60 @@ const rowKey = new PluginKey('lryRowHandle');
 
 /* 高亮块四色 */
 const CARDS = [['info', '信息'], ['success', '成功'], ['warning', '警示'], ['danger', '危险']];
+
+/* 文末是否已是"待写行"(空段落):是则它自己就是预告的下一行,不再另画预告行 */
+export function isWaitingLine(doc) {
+  const last = doc.lastChild;
+  return !!last && last.type.name === 'paragraph' && last.content.size === 0;
+}
+
+/* 预告下一行(2026-11-24,用户报"进了代码块出不来、要预见性地给出下一行"):
+   末块不是空段落(代码块/表格/画板等)时,在文末画一行不可编辑的待写行——
+   点行内任意处在文末补一个空段落并落进去;点行首常显的「+」则补段落并打开其行菜单。
+   纯编辑态装饰,文档不变,不影响序列化契约 */
+function nextLineWidget(pos) {
+  return Decoration.widget(pos, (view) => {
+    const line = document.createElement('div');
+    line.className = 'lry-next-line';
+    line.contentEditable = 'false';
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'lry-row-handle lry-next-add';
+    add.title = '插入内容(图片、表格、画板、代码块…)';
+    add.textContent = '+';
+    const hint = document.createElement('span');
+    hint.className = 'lry-next-hint';
+    hint.textContent = '继续输入,或点「+」插入内容';
+    line.appendChild(add);
+    line.appendChild(hint);
+    const startNew = (withMenu) => {
+      const { state } = view;
+      const tr = state.tr;
+      let caret;
+      /* 渲染后文档可能已变(末块已成空段落):此时只需把光标落进去 */
+      if (isWaitingLine(state.doc)) {
+        caret = state.doc.content.size - 1;
+      } else {
+        const at = state.doc.content.size;
+        tr.insert(at, state.schema.nodes.paragraph.create());
+        caret = at + 1;
+      }
+      tr.setSelection(TextSelection.create(tr.doc, caret));
+      tr.scrollIntoView();
+      view.dispatch(tr);
+      view.focus();
+      if (withMenu) {
+        /* 新段落的行柄是最后一个普通行柄:走它的 mousedown,弹出与点中已有行相同的菜单 */
+        const handles = view.dom.querySelectorAll('.lry-row-handle:not(.lry-next-add)');
+        const target = handles[handles.length - 1];
+        if (target) target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      }
+    };
+    add.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startNew(true); });
+    line.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startNew(false); });
+    return line;
+  }, { side: 1, ignoreSelection: true, key: 'lry-next-line', stopEvent: () => true });
+}
 
 export const RowHandle = Extension.create({
   name: 'lryRowHandle',
@@ -31,13 +88,18 @@ export const RowHandle = Extension.create({
         props: {
           decorations(state) {
             const decos = [];
-            state.doc.forEach((node, offset) => {
+            const waiting = isWaitingLine(state.doc);
+            const editable = editor.isEditable !== false;
+            const count = state.doc.childCount;
+            state.doc.forEach((node, offset, index) => {
               /* 不给这些块挂行柄 */
               if (node.type.name === 'lryPageBreak') return;
               decos.push(Decoration.widget(offset, (view) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'lry-row-handle';
+                /* 文末待写行的行柄常显(非悬停才出现),让"下一行"始终可见可点 */
+                if (waiting && editable && index === count - 1) btn.classList.add('lry-row-handle-next');
                 btn.title = '行操作';
                 btn.textContent = '+';
                 btn.addEventListener('mousedown', (e) => {
@@ -62,6 +124,7 @@ export const RowHandle = Extension.create({
                 return btn;
               }, { side: -1, ignoreSelection: true }));
             });
+            if (!waiting && editable && count) decos.push(nextLineWidget(state.doc.content.size));
             return DecorationSet.create(state.doc, decos);
           }
         }
