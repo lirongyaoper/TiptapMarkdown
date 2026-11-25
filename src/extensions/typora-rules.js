@@ -8,6 +8,8 @@
  */
 import { Extension } from '@tiptap/core';
 import { NodeSelection } from '@tiptap/pm/state';
+import { STARTER } from '../diagram/kind.js';
+import { focusDiagramAt } from '../ui/mermaid-view.js';
 
 export const TyporaRules = Extension.create({
   name: 'lryTyporaRules',
@@ -144,14 +146,26 @@ export const TyporaRules = Extension.create({
           return true;
         }
       },
-      /* ```mermaid + 回车 → 画板块(带模板) */
+      /* 输入 ```mermaid → 流程图画板(带起始模板,插入即可编辑)。
+         此前生成的是空画板,且这条规则在敲完最后一个字母时就触发(不是回车) */
       {
         find: /^```mermaid$/,
         handler({ state, range }) {
-          const node = state.schema.nodes.lryMermaid.createAndFill();
+          const node = state.schema.nodes.lryMermaid.createAndFill({ src: STARTER.flow });
           if (!node) return false;
           const { tr } = state;
-          tr.replaceWith(range.from, range.to, node);
+          const $from = state.doc.resolve(range.from);
+          const para = $from.depth === 1 ? $from.parent : null;
+          let at = range.from;
+          if (para && para.type.name === 'paragraph' && $from.parentOffset === 0 && para.content.size === range.to - range.from) {
+            /* 顶层段落里只有这串文字:整段换成画板(不留一个空段落),落在文末时其后补空段落 */
+            at = $from.before(1);
+            tr.replaceWith(at, at + para.nodeSize, node);
+            if (at + node.nodeSize >= tr.doc.content.size) tr.insert(tr.doc.content.size, tr.doc.type.schema.nodes.paragraph.create());
+          } else {
+            tr.replaceWith(range.from, range.to, node);
+          }
+          focusDiagramAt(editor, at); /* 规则处理器是普通方法,没有 this */
           return true;
         }
       },

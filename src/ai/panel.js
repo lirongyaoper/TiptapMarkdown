@@ -1,5 +1,5 @@
 /**
- * AI 助手面板:请求经 adapter.ai(messages)(memory=演示 mock,url=OpenAI 兼容 SSE,自定义=任意实现)。
+ * AI 助手面板:请求经 adapter.ai(messages,{signal,onDelta})(memory=演示 mock,url=OpenAI 兼容 SSE,自定义=任意实现)。
  * 功能:翻译/续写/摘要/丰富/优化整篇 + 自由输入;SSE 流式;插入/替换选区。
  */
 import { h, dialog, toast } from '../ui/dom.js';
@@ -22,7 +22,8 @@ const FUNCTIONS = [
 /* mermaid 源识别:输出直接变画板块 */
 const MERMAID_HEADS = ['graph ', 'graph\n', 'flowchart', 'sequencediagram', 'mindmap', 'classdiagram', 'statediagram', 'gantt', 'pie', 'erdiagram', 'journey'];
 function looksMermaid(text) {
-  const t = String(text || '').trim().toLowerCase().replace(/^[\r\n]+/, '');
+  /* 开头的 %% 指令/注释行(%%{init:…}%%)不参与判型:模型常把它们放在最前面 */
+  const t = String(text || '').trim().toLowerCase().replace(/^[\r\n]+/, '').replace(/^(%%[^\n]*\n\s*)+/, '');
   return MERMAID_HEADS.some((h) => t.startsWith(h));
 }
 
@@ -73,10 +74,8 @@ export async function insertAiResult(inst, text, range) {
 export function mountAiPanel(inst) {
   inst.aiApi = { open: () => openPanel(inst) };
 }
-let edInst = null;
 
 function openPanel(inst) {
-  edInst = inst;
   const ed = inst.editor;
   const input = h('textarea', { class: 'lry-input', rows: 3, placeholder: '输入指令或问题,选中内容会作为上下文…' });
   const output = h('div', { class: 'lry-ai-output' }, h('div', { class: 'lry-ai-placeholder' }, 'AI 结果将在这里流式输出'));
@@ -105,17 +104,24 @@ function openPanel(inst) {
     const status = h('div', { class: 'lry-ai-status' }, '生成中…');
     output.appendChild(status);
     try {
-      streamAbort = 'running';
+      streamAbort = new AbortController();
       status.remove();
-      /* 经 adapter:memory=mock, url=SSE 流式, 自定义=任意实现 */
-      const adapter = getAdapter(edInst);
-      resultText = await adapter.ai([{ role: 'user', content: prompt }]);
+      /* 经 adapter:memory=mock,url=SSE 流式,自定义=返回完整字符串或调用 onDelta */
+      const adapter = getAdapter(inst);
+      resultText = await adapter.ai([{ role: 'user', content: prompt }], {
+        signal: streamAbort.signal,
+        onDelta: (delta) => {
+          resultText += delta;
+          output.textContent = resultText;
+          output.scrollTop = output.scrollHeight;
+        }
+      });
       output.textContent = resultText;
       output.scrollTop = output.scrollHeight;
       if (resultText) actions.style.display = 'flex';
       else output.textContent = '(空响应)';
     } catch (e) {
-      if (streamAbort !== 'abort') {
+      if (e.name !== 'AbortError') {
         output.textContent = '请求失败:' + e.message;
       }
     } finally {
@@ -152,7 +158,7 @@ function openPanel(inst) {
 
   const api = dialog({
     title: 'AI 助手', width: '560px', noFooter: true,
-    onClose() { if (streamAbort === 'running') streamAbort = 'abort'; },
+    onClose() { if (streamAbort) streamAbort.abort(); },
     body: h('div', null, btnRow, input, output, actions)
   });
 }

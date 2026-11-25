@@ -10,6 +10,7 @@
  * - <img class="edui-*">(非视频)  → 弃装饰类
  * - <u>/<strike>/<s>/<del>          → 官方扩展原生支持,不动
  * - 空 class 清理
+ * - 裸定界符公式 \(…\) / 整段的 \[…\] → lry-math 契约节点(healBareMath)
  * 注意:<video class="edui-faked-video"> 的类是**输出契约**,由 LryVideo 节点
  * 自行解析/渲染,归一化不得触碰。
  */
@@ -129,6 +130,55 @@ export function normalizeLegacyHtml(html, doc) {
     }
   });
 
+  healBareMath(root, dom);
+
   /* 语雀块归一化(showdown 任务列表/mermaid 围栏产物统一契约形态) */
   return normalizeYuqueHtml(root.innerHTML);
+}
+
+/**
+ * 裸定界符公式 → 契约节点(2026-11-24)。与前台 lry-content-render.js 的裸定界符扫描同口径:
+ * \(…\) \[…\] 必转。来源:早期版本把块级公式存成 <p>\[…\]</p>(载入时 class 被段落规则吃掉)、
+ * 外部粘贴的 LaTeX 源码。不归一的话编辑器里只见源码、无法编辑,而前台却当公式渲染,两边不一致。
+ * 代码块内、已是公式节点的、KaTeX 渲染结果内不动。
+ */
+function healBareMath(root, dom) {
+  const skip = (start) => {
+    for (let p = start; p && p !== root; p = p.parentNode) {
+      const t = p.tagName;
+      if (t === 'PRE' || t === 'CODE' || t === 'SCRIPT' || t === 'STYLE') return true;
+      if (/\b(?:katex|lry-math)/.test(' ' + (p.getAttribute('class') || ''))) return true;
+    }
+    return false;
+  };
+  /* 块级:整段只有 \[…\] */
+  root.querySelectorAll('p, div').forEach(function (el) {
+    if (el.firstElementChild || skip(el.parentNode)) return;
+    if (!/^\\\[[\s\S]+\\\]$/.test(el.textContent.trim())) return;
+    const cls = (el.getAttribute('class') || '').split(/\s+/).filter(Boolean);
+    if (!cls.includes('lry-math')) cls.push('lry-math');
+    if (!cls.includes('lry-math-block')) cls.push('lry-math-block');
+    el.setAttribute('class', cls.join(' '));
+  });
+  /* 行内:文本节点里的 \(…\) */
+  const walker = dom.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+  const targets = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeValue.includes('\\(') && !skip(n.parentNode)) targets.push(n);
+  }
+  targets.forEach(function (node) {
+    const frag = dom.createDocumentFragment();
+    const re = /\\\(([\s\S]+?)\\\)/g;
+    let last = 0, m;
+    while ((m = re.exec(node.nodeValue))) {
+      if (m.index > last) frag.appendChild(dom.createTextNode(node.nodeValue.slice(last, m.index)));
+      const span = dom.createElement('span');
+      span.setAttribute('class', 'lry-math');
+      span.textContent = m[0];
+      frag.appendChild(span);
+      last = m.index + m[0].length;
+    }
+    frag.appendChild(dom.createTextNode(node.nodeValue.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  });
 }

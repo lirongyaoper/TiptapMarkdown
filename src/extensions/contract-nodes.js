@@ -7,18 +7,26 @@
  * 不参与 getHTML 序列化,序列化走 renderHTML,契约不破)。
  * 公式:行内 <span class="lry-math">\(tex\)</span>、
  *       块级 <p class="lry-math lry-math-block">\[tex\]</p>。
+ *       编辑态由 NodeView 按 KaTeX 渲染(ui/math-nodeview.js),双击/回车进入公式对话框。
  * 脚注:sup.lry-fn / sup.lry-fn-label / p.lry-fn-def(由 LryParagraph cls 承载)
  *       / div.lry-footnotes 容器。
  */
 import { Node } from '@tiptap/core';
-import { TextSelection } from '@tiptap/pm/state';
+import { TextSelection, NodeSelection } from '@tiptap/pm/state';
 import { codeBlockNodeView } from '../ui/codeblock-nodeview.js';
 import { codeHighlightPlugin } from '../ui/code-highlight.js';
+import { mathNodeView, MATH_TYPES } from '../ui/math-nodeview.js';
+import { openFormulaDialog } from '../ui/formula.js';
 import { parseBrushClass, buildBrushClass, brushFromDom } from './brush.js';
 
 /* 缩进单位用制表符:前台 lry-content-render.css 与编辑器均为 tab-size:4,与站内
    PHP 源码风格一致;粘贴进来的空格缩进原样保留不被改写 */
 export const CODE_INDENT = '\t';
+
+/* 公式节点的解析优先级须压过段落规则(同为默认优先级时按扩展顺序,LryParagraph 的裸 <p> 规则
+   排在前面先认领)。此前入库的块级公式 <p class="lry-math lry-math-block"> 载入即被解析成
+   普通段落、class 丢失,编辑器里只剩 \[…\] 源码(前台靠裸定界符兜底才显示正常)——2026-11-24 */
+const MATH_PARSE_PRIORITY = 200;
 
 /* 行首一个缩进单位的宽度:制表符 1,空格最多 4 个 */
 function unitCut(text, i) {
@@ -245,11 +253,19 @@ export const LryMathInline = Node.create({
         const text = el.textContent || '';
         const m = /^\\\((.*)\\\)$/s.exec(text.trim());
         return { tex: m ? m[1] : text };
-      }
+      },
+      priority: MATH_PARSE_PRIORITY
     }];
   },
   renderHTML({ node }) {
     return ['span', { class: 'lry-math' }, '\\(' + node.attrs.tex + '\\)'];
+  },
+  /* 编辑态按 KaTeX 渲染(此前无 NodeView,只见源码);序列化仍走上面的 renderHTML */
+  addNodeView() {
+    return mathNodeView(false);
+  },
+  addKeyboardShortcuts() {
+    return { Enter: () => editMathOnEnter(this.editor) };
   },
   addCommands() {
     return {
@@ -269,19 +285,35 @@ export const LryMathBlock = Node.create({
     return { tex: { default: '' } };
   },
   parseHTML() {
-    return [{
-      tag: 'p.lry-math-block',
-      getAttrs: (el) => {
-        const text = el.textContent || '';
-        const m = /^\\\[(.*)\\\]$/s.exec(text.trim());
-        return { tex: m ? m[1] : text };
-      }
-    }];
+    const attrs = (el) => {
+      const text = el.textContent || '';
+      const m = /^\\\[(.*)\\\]$/s.exec(text.trim());
+      return { tex: m ? m[1] : text };
+    };
+    /* 契约形态是 <p>;前台也认 div.lry-math-block,这里一并吃下、输出统一成 <p> */
+    return [
+      { tag: 'p.lry-math-block', getAttrs: attrs, priority: MATH_PARSE_PRIORITY },
+      { tag: 'div.lry-math-block', getAttrs: attrs, priority: MATH_PARSE_PRIORITY }
+    ];
   },
   renderHTML({ node }) {
     return ['p', { class: 'lry-math lry-math-block' }, '\\[' + node.attrs.tex + '\\]'];
+  },
+  addNodeView() {
+    return mathNodeView(true);
+  },
+  addKeyboardShortcuts() {
+    return { Enter: () => editMathOnEnter(this.editor) };
   }
 });
+
+/* 选中公式按回车 = 进入编辑(与双击同;上下文条/双击之外的键盘出口) */
+function editMathOnEnter(editor) {
+  const sel = editor.state.selection;
+  if (!(sel instanceof NodeSelection) || MATH_TYPES.indexOf(sel.node.type.name) < 0) return false;
+  openFormulaDialog(editor);
+  return true;
+}
 
 /* 脚注引用上标:<sup class="lry-fn">n</sup>(定义行 p.lry-fn-def 走 LryParagraph.cls) */
 export const LryFnSup = Node.create({

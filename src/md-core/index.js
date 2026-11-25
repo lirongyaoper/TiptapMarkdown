@@ -514,7 +514,8 @@ UE.mdEmoji = {
    1. 围栏代码块 ``` / ~~~：自研解析（showdown 遇到带参数的 info string 会解析失败），
       支持 ```js theme=monokai；```math 视为公式块
    2. <div style="…" markdown="1">…</div>：内部递归按 Markdown 转换，样式合并回顶层块
-   3. 语雀高亮块 :::info / :::success / :::warning / :::danger（亦认 GitHub 类型与中文别名）
+   3. 语雀高亮块 :::info / :::success / :::warning / :::danger（亦认 GitHub 类型与中文别名）；
+      折叠块 :::fold 标题 / :::fold-closed 标题；分栏 :::cols + :::col。容器可任意嵌套（按深度配对）
    4. 提示块 > [!NOTE] / [!TIP] / [!IMPORTANT] / [!WARNING] / [!CAUTION]（亦认 提示/技巧/重要/警告/注意）
    5. 脚注定义 [^x]: …（引用 [^x] 保留标签文本，不重编号，往返无损）；[TOC] 目录行
    6. 公式 $$…$$ / \[…\]（独占行）/ $…$ / \(…\)：转换前抽出，防止 _ * 被当作 Markdown
@@ -645,20 +646,139 @@ UE._mdPipeline = (function () {
             });
     }
 
-    /* ---- 2.5 语雀高亮块 :::info / :::success / :::warning / :::danger ---- */
-    function extractCards(md, state, convertInner) {
+    /* ---- 2.5 容器块(::: 开头的行) ----
+       高亮块 :::info / :::success / :::warning / :::danger(亦认 GitHub 类型与中文别名;不带类型 = info)
+       折叠块 :::fold 标题 / :::fold-closed 标题(收起态)
+       分栏   :::cols 2,里面每个 :::col … ::: 是一栏
+       嵌套按深度配对:带类型的行开一层,裸 ::: 行关最里层(短于该层起始行长度的裸行按正文保留,与围栏代码块同规则);
+       没有打开的容器时,裸 ::: 仍按旧语法当 info 卡片的开头。
+       未知类型:整段原样保留到下一个裸 :::(连同闭合行,避免闭合 ::: 被误当新卡片开头)。
+       2026-11-24 之前只认"第一个闭合行":容器里再套容器会被截断,折叠块 / 分栏根本没法表示——
+       导出侧只好把这两类块拆散成普通段落,Markdown 分栏里一编辑就丢外壳(见 htmlToMarkdown 的 foldToMd / colsToMd)。 */
+    var CONTAINERS = {
+        fold: { kind: "fold", open: true },
+        "fold-closed": { kind: "fold", open: false },
+        cols: { kind: "cols" },
+        col: { kind: "col" }
+    };
+    var CONTAINER_ALIAS = {
+        fold: "fold", "折叠": "fold", "折叠块": "fold",
+        "fold-closed": "fold-closed", "fold-close": "fold-closed", "折叠收起": "fold-closed", "折叠块收起": "fold-closed",
+        cols: "cols", columns: "cols", "分栏": "cols",
+        col: "col", column: "col", "栏": "col", "列": "col"
+    };
+
+    function containerSpec(token) {
+        var t = UE.mdCardTypes.alias[token] || UE.mdCardTypes.alias[token.toUpperCase()] ||
+            UE.mdCardTypes.alias[token.toLowerCase()];
+        if (t) {
+            return { kind: "card", type: t };
+        }
+        var low = token.toLowerCase();
+        var key = CONTAINER_ALIAS.hasOwnProperty(token) ? CONTAINER_ALIAS[token]
+            : (CONTAINER_ALIAS.hasOwnProperty(low) ? CONTAINER_ALIAS[low] : null);
+        return key ? CONTAINERS[key] : null;
+    }
+
+    /* 折叠块标题:单行行内 Markdown → 行内 HTML;被 showdown 当成块级结构(如以 # 开头)时退回纯文本 */
+    function foldTitleHtml(arg, convertInner) {
+        var t = String(arg || "").replace(/\s+$/, "");
+        if (!t) {
+            return "";
+        }
+        var html = String(convertInner(t) || "").replace(/^\s+|\s+$/g, "");
+        var single = /^<p>([\s\S]*)<\/p>$/.exec(html);
+        return single && single[1].indexOf("<p") === -1 ? single[1] : escHtml(t);
+    }
+
+    /* 分栏内容整理成"一栏接一栏":栏外的零散内容并进各自相邻的一栏,免得结构不合法被丢 */
+    function colsInner(inner, argN) {
+        var doc = document.implementation.createHTMLDocument("");
+        var box = doc.createElement("div");
+        box.innerHTML = inner;
+        var out = "", loose = "", count = 0;
+        var flush = function () {
+            if (loose.replace(/\s|<p><br\/><\/p>|<p><\/p>/g, "")) {
+                out += '<div class="lry-col">' + loose + "</div>";
+                count++;
+            }
+            loose = "";
+        };
+        for (var c = box.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType === 1 && c.tagName.toLowerCase() === "div" && /\blry-col\b/.test(c.getAttribute("class") || "")) {
+                flush();
+                out += c.outerHTML;
+                count++;
+            } else {
+                loose += c.nodeType === 1 ? c.outerHTML : c.nodeValue;
+            }
+        }
+        flush();
+        if (!count) {
+            out = '<div class="lry-col">' + (inner || "<p></p>") + "</div>";
+            count = 1;
+        }
+        var n = argN === 3 || (argN !== 2 && count >= 3) ? 3 : 2;
+        return { html: '<div class="lry-cols lry-cols-' + n + '">' + out + "</div>", cols: n };
+    }
+
+    function renderContainer(c, parent, state, convertInner) {
+        var inner = convertInner(c.body.join("\n")) || "";
+        if (c.kind === "card") {
+            return '<blockquote class="lry-card lry-card-' + c.type + '">' + (inner || "<p><br/></p>") + "</blockquote>";
+        }
+        if (c.kind === "fold") {
+            /* 空正文给一个空段落(不是 <p><br/></p>:那个会变成一个硬换行,收起的折叠块展开后多出一行空白) */
+            return '<div class="lry-fold' + (c.open ? "" : " lry-fold-close") + '"><div class="lry-fold-head">' +
+                foldTitleHtml(c.arg, convertInner) + '</div><div class="lry-fold-body">' + (inner || "<p></p>") + "</div></div>";
+        }
+        if (c.kind === "col") {
+            /* 栏只能住在分栏里:散落在外的 :::col 不包外壳,内容原样落地 */
+            return parent && parent.kind === "cols" ? '<div class="lry-col">' + (inner || "<p></p>") + "</div>" : inner;
+        }
+        var am = /^\s*(\d)/.exec(c.arg || "");
+        /* 各栏此刻还是占位符:先就地还原成 <div class="lry-col">,才分得清"栏"与"栏外的零散内容"
+           (restore 是幂等的,最外层统一还原时这些占位符已经不在了) */
+        return colsInner(restore(inner, state), am ? parseInt(am[1], 10) : 0).html;
+    }
+
+    function extractContainers(md, state, convertInner) {
         var lines = md.split("\n");
         var out = [];
+        var stack = [];
+        var sink = function () { return stack.length ? stack[stack.length - 1].body : out; };
+        var closeTop = function () {
+            var c = stack.pop();
+            sink().push(hold(state, renderContainer(c, stack[stack.length - 1], state, convertInner), true, c.indent));
+        };
         for (var i = 0; i < lines.length; i++) {
-            var m = lines[i].match(/^([ \t]{0,3})(:{3,})[ \t]*([A-Za-z\u4e00-\u9fa5]{0,20})[ \t]*$/);
-            if (!m) {
-                out.push(lines[i]);
+            var line = lines[i];
+            var opener = /^([ \t]{0,3})(:{3,})[ \t]*(.*)$/.exec(line);
+            if (!opener) {
+                sink().push(line);
                 continue;
             }
-            var type = m[3] ? (UE.mdCardTypes.alias[m[3]] || UE.mdCardTypes.alias[m[3].toUpperCase()] ||
-                UE.mdCardTypes.alias[m[3].toLowerCase()]) : "info";
-            if (!type) {
-                // 未知类型：整段原样保留（连同闭合行一起，避免闭合 ::: 被误当新卡片开头）
+            var rest = opener[3];
+            var top = stack[stack.length - 1];
+            if (!rest) {
+                if (top) {
+                    if (opener[2].length >= top.fence) {
+                        closeTop();
+                    } else {
+                        sink().push(line);
+                    }
+                } else {
+                    stack.push({ kind: "card", type: "info", arg: "", fence: opener[2].length, indent: opener[1], body: [] });
+                }
+                continue;
+            }
+            var tm = /^(\S+)(?:[ \t]+([\s\S]*))?$/.exec(rest);
+            var spec = containerSpec(tm[1]);
+            if (spec) {
+                stack.push({ kind: spec.kind, type: spec.type, open: spec.open, arg: tm[2] || "", fence: opener[2].length, indent: opener[1], body: [] });
+                continue;
+            }
+            if (!tm[2] && /^[A-Za-z\u4e00-\u9fa5-]{1,20}$/.test(tm[1])) {
                 var kEnd = i + 1;
                 for (; kEnd < lines.length; kEnd++) {
                     if (/^[ \t]{0,3}:{3,}[ \t]*$/.test(lines[kEnd])) {
@@ -666,26 +786,16 @@ UE._mdPipeline = (function () {
                     }
                 }
                 for (var k = i; k <= kEnd && k < lines.length; k++) {
-                    out.push(lines[k]);
+                    sink().push(lines[k]);
                 }
                 i = kEnd;
                 continue;
             }
-            var fence = m[2];
-            var body = [];
-            var j = i + 1;
-            for (; j < lines.length; j++) {
-                var cm = lines[j].match(/^[ \t]{0,3}(:{3,})[ \t]*$/);
-                if (cm && cm[1].length >= fence.length) {
-                    break;
-                }
-                body.push(lines[j]);
-            }
-            // 未闭合容器延续到文末（j 越界时整段消费完）
-            i = j;
-            var inner = convertInner(body.join("\n"));
-            out.push(hold(state, '<blockquote class="lry-card lry-card-' + type + '">' +
-                (inner || "<p><br/></p>") + "</blockquote>", true, m[1]));
+            sink().push(line);
+        }
+        // 未闭合容器延续到文末:由里向外逐层收口
+        while (stack.length) {
+            closeTop();
         }
         return out.join("\n");
     }
@@ -996,7 +1106,7 @@ UE._mdPipeline = (function () {
         }
         md = extractFences(md, state);
         md = extractMdDivs(md, state, convertInner);
-        md = extractCards(md, state, convertInner);
+        md = extractContainers(md, state, convertInner);
         md = extractAlerts(md, state, convertInner);
         md = extractFootnoteDefs(md, state);
         md = extractToc(md, state);
@@ -1017,10 +1127,20 @@ UE._mdPipeline = (function () {
         var inlineRe = new RegExp(ph + "(\\d+)PH", "g");
         for (var n = 0; n < MAX_DEPTH + 2; n++) {
             var before = html;
-            html = html.replace(blockRe, function (all, idx) {
-                var v = state.store[+idx];
-                return v && v.block ? v.html : all;
-            });
+            /* 块级占位符先全部落位：一个块级占位符的 HTML 里还带着更里层的块级占位符（<p>占位符</p>），
+               要替换到不再变化为止。否则里层的会落到下面的"行内还原"上，留下 <p><pre>…</pre></p> 这种非法嵌套，
+               经 HTML 解析后变成代码块 / 卡片前后的空段落（2026-11-24；此前高亮块里放代码块即如此，
+               折叠块、分栏里更明显）。 */
+            for (var b = 0; b < MAX_DEPTH + 2; b++) {
+                var prev = html;
+                html = html.replace(blockRe, function (all, idx) {
+                    var v = state.store[+idx];
+                    return v && v.block ? v.html : all;
+                });
+                if (html === prev) {
+                    break;
+                }
+            }
             html = html.replace(inlineRe, function (all, idx) {
                 var v = state.store[+idx];
                 return v === undefined ? all : v.html;
@@ -1419,6 +1539,17 @@ UE.htmlToMarkdown = (function () {
                     !/lry-math-block/.test(node.getAttribute("class") || "")) {
                     return "$" + mathTextOf(node) + "$";
                 }
+                // 状态卡片（行内胶囊，2026-11-24）：没有对应的 Markdown 标记，此前只剩里面的文字。
+                // 导出为内联 HTML（同彩色高亮的做法），导入时 showdown 原样放行
+                if (/\blry-status\b/.test(node.getAttribute("class") || "")) {
+                    if (!ctx.rich) {
+                        return inner();
+                    }
+                    var statusCls = (node.getAttribute("class") || "").split(/\s+/).filter(function (sc) {
+                        return /^lry-status(?:-[a-z]+)?$/.test(sc);
+                    }).join(" ");
+                    return "<span " + htmlAttr("class", statusCls) + ">" + inner() + "</span>";
+                }
                 // UEditor 内部用 span+line-through 表示删除线，导出还原为 ~~text~~
                 st = parseStyle(node);
                 var deco = (st["text-decoration"] || "").replace(/\s/g, "");
@@ -1657,6 +1788,48 @@ UE.htmlToMarkdown = (function () {
         return false;
     }
 
+    /* 直接子元素里第一个带该 class 的（结构块的头 / 正文 / 栏） */
+    function childWithClass(node, cls) {
+        for (var c = node.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType === 1 && c.tagName.toLowerCase() === "div" &&
+                (" " + (c.getAttribute("class") || "") + " ").indexOf(" " + cls + " ") !== -1) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    // 折叠块 → :::fold 标题 / :::fold-closed 标题 + 容器内的 Markdown 正文
+    function foldToMd(node, ctx) {
+        var head = childWithClass(node, "lry-fold-head");
+        var body = childWithClass(node, "lry-fold-body");
+        if (!head || !body) {
+            return blocksToMd(node, "", ctx);
+        }
+        var closed = /\blry-fold-close\b/.test(node.getAttribute("class") || "");
+        // 标题只能占一行：段内换行折成空格
+        var title = inlineNodes(head, ctx).replace(/[\u0001\n]+/g, " ").replace(/\s+$/, "");
+        return ":::" + (closed ? "fold-closed" : "fold") + (title ? " " + title : "") + "\n" +
+            blocksToMd(body, "", ctx).replace(/\n+$/, "") + "\n:::\n\n";
+    }
+
+    // 分栏 → :::cols 2|3，每栏一个 :::col 子容器
+    function colsToMd(node, ctx) {
+        var cm = /(?:^|\s)lry-cols-(\d)(?:\s|$)/.exec(node.getAttribute("class") || "");
+        var parts = [];
+        for (var c = node.firstChild; c; c = c.nextSibling) {
+            if (c.nodeType !== 1) {
+                continue;
+            }
+            var isCol = c.tagName.toLowerCase() === "div" && /\blry-col\b/.test(c.getAttribute("class") || "");
+            parts.push(":::col\n" + (isCol ? blocksToMd(c, "", ctx) : blockToMd(c, ctx)).replace(/\n+$/, "") + "\n:::");
+        }
+        if (!parts.length) {
+            parts.push(":::col\n:::");
+        }
+        return ":::cols " + (cm && cm[1] === "3" ? 3 : 2) + "\n" + parts.join("\n") + "\n:::\n\n";
+    }
+
     function listToMd(listEl, indent, ctx) {
         var ordered = listEl.tagName.toLowerCase() === "ol";
         var childIndent = indent + (ordered ? "   " : "  ");
@@ -1834,6 +2007,19 @@ UE.htmlToMarkdown = (function () {
                 if (/\blry-footnotes\b/.test(cls)) {
                     return footnoteDivToMd(node, ctx);
                 }
+                // 结构块（2026-11-24）：折叠块 / 分栏没有对应的 Markdown 标记，此前被当普通容器拆散成几个段落，
+                // Markdown 分栏里一编辑、或导出再导入，外壳就没了。现在导出为 ::: 容器（见 _mdPipeline 的 extractContainers），
+                // 容器里的正文照常是 Markdown——代码块、画板、列表、表格在里面都能正常往返。
+                // 文件卡只有一行、内部没有块级内容，原样保留为单行 HTML 块即可。
+                if (/\blry-fold\b/.test(cls)) {
+                    return foldToMd(node, ctx);
+                }
+                if (/\blry-cols\b/.test(cls)) {
+                    return colsToMd(node, ctx);
+                }
+                if (/\blry-filecard\b/.test(cls)) {
+                    return node.outerHTML + "\n\n";
+                }
                 if (hasBlockChild(node)) {
                     return blocksToMd(node, "", ctx);
                 }
@@ -1864,6 +2050,14 @@ UE.htmlToMarkdown = (function () {
                     return l ? "> " + l : ">";
                 }).join("\n") + "\n\n";
             case "pre":
+                // 画板(2026-11-24):pre.lry-mermaid 里是 Mermaid 源码,导出为 ```mermaid 围栏。
+                // 此前走下面的通用分支,输出不带语言标记的裸围栏——在 Markdown 分栏里一编辑、
+                // 或导出 Markdown 再导入,所有画板都会退化成普通代码块
+                if (/\blry-mermaid\b/.test(node.getAttribute("class") || "")) {
+                    var mmText = node.textContent.replace(/\u00a0/g, " ").replace(/\n+$/, "");
+                    var mmFence = fenceFor(mmText);
+                    return mmFence + "mermaid\n" + mmText + "\n" + mmFence + "\n\n";
+                }
                 var info = UE.mdBrushInfo(node.getAttribute("class"));
                 var lang = UE.mdBrushToLang(info.brush);
                 // pre 内 &nbsp; 是缩进/空格占位（insertcode 序列化约定），还原为普通空格

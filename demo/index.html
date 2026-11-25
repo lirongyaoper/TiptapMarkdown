@@ -15,7 +15,7 @@ button.lang { float: right; font-size: 12px; }
 </head>
 <body>
 <h1>lry-editor <button class="lang" onclick="location.href='index.en.html'">English demo</button></h1>
-<div class="sub">Tiptap 内核 · Markdown 双向分栏 · 画板(mermaid) · 编辑态代码高亮 · 折叠/分栏/任务列表 · 行柄菜单 · 斜杠面板 · AI 面板(适配器)</div>
+<div class="sub">Tiptap 内核 · Markdown 双向分栏 · 可视化自由画板(mermaid) · 编辑态代码高亮 · 公式编辑 · 折叠/分栏/任务列表 · 行柄菜单 · 斜杠面板 · AI 面板(适配器)</div>
 <div class="banner">本页 <b>零后端</b>:默认 <code>memory</code> 适配器(图片存 dataURI,AI 走演示 mock)。接真实后端见 README「适配器」一节 <code>LRYEditor.createUrlAdapter({...})</code>。</div>
 <div id="editor1"></div>
 <div style="margin-top:14px;font-size:12px;color:#8a919c">当前内容(实时):</div>
@@ -34,6 +34,7 @@ button.lang { float: right; font-size: 12px; }
       + '<div class="lry-cols lry-cols-2"><div class="lry-col"><p>左栏布局</p></div><div class="lry-col"><p>右栏布局</p></div></div>'
       + '<ul class="lry-task"><li class="lry-task-item lry-task-done"><span class="lry-task-check">☑</span><div class="lry-task-body"><p>已完成任务</p></div></li><li class="lry-task-item"><span class="lry-task-check">☐</span><div class="lry-task-body"><p>待办任务</p></div></li></ul>'
       + '<blockquote class="lry-card lry-card-info"><p>高亮块:四色信息卡片</p></blockquote>'
+      + '<p>公式:<span class="lry-math">\\(E=mc^2\\)</span>(点击或双击可编辑)</p>'
       + '<pre class="lry-mermaid">graph TD\nA[开始] --> B{条件?}\nB -->|是| C[处理]\nB -->|否| D[结束]</pre>'
       + '<pre class="brush:js;toolbar:false;theme:monokai;">// 代码块:编辑时即有语法高亮,点顶栏语言名可切换\nfunction greet(name) {\n  return "你好, " + name + "!";\n}</pre>'
   });

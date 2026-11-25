@@ -30,7 +30,7 @@ import { LryTaskList, LryTaskItem } from './extensions/task-list.js';
 import { mountBubbleMenu } from './ui/bubble.js';
 import './styles/lry-editor-lite.css';
 
-export const VERSION = '1.2.1';
+export const VERSION = '1.4.1';
 
 /* ---------- 输入清洗:留言场景最小集(防御纵深,服务端仍需过滤输出) ---------- */
 function sanitizeInput(html) {

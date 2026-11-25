@@ -4,7 +4,8 @@ An open-source multi-document rich text editor — Tiptap core, Yuque-style expe
 
 - **Markdown dual-pane**: source on the left (per-line "+" gutter handle), WYSIWYG on the right, debounced two-way sync, lossless exit
 - **Diagrams**: mermaid flowcharts / mindmaps / sequence / gantt / UML, rendered live in the editor
-- **Yuque-style blocks**: folding blocks, column layouts, task lists, status chips, file cards, 4-color callout cards, code blocks (**syntax highlighting while typing** + line numbers + language dropdown + copy), LaTeX math
+- **Visual free canvas**: edit flowcharts, mindmaps and UML class diagrams directly; multi-select, marquee selection, text/shapes/connectors/stickers/images, context menus, clipboard, zoom and PNG/SVG export. Layout travels with the Mermaid source and shares one layout layer with the renderer
+- **Yuque-style blocks**: folding blocks, column layouts, task lists, status chips, file cards, 4-color callout cards, code blocks (**syntax highlighting while typing** + line numbers + language dropdown + copy), LaTeX math (**live KaTeX preview and editing**)
 - **Next-line preview**: when the document ends with a code block, table or diagram, a waiting line with an always-visible "+" appears below it — click and keep writing; leaving a code block is always possible (Enter on an empty line / `Esc` / `↓`)
 - **Row-handle "+" menu**: 31 block operations (H1-H6 / callouts / quote / lists / tasks / code / fold / copy / cut / delete / indent / diagrams / formulas…)
 - **Slash menu**: type `/` on an empty line, 51 cards in 6 groups
@@ -14,7 +15,7 @@ An open-source multi-document rich text editor — Tiptap core, Yuque-style expe
 - **Toolbar**: 90 buttons; full display on desktop, 3-row adaptive with "more" on mobile
 - **Auto outline & heading fold, autosave, format painter, floating find & replace, fullscreen, export (Markdown / HTML / Word / plain text), multi-theme code highlighting**
 
-> For guestbook / comment / reply scenarios see the **[lite edition](#lite-edition-comments--guestbook)**: text-only formatting, a single 432KB file, same-shape API as the full editor.
+> For guestbook / comment / reply scenarios see the **[lite edition](#lite-edition-comments--guestbook)**: text-only formatting, a single 433KB file, same-shape API as the full editor.
 
 ## Quick Start (no backend)
 
@@ -39,7 +40,7 @@ Or include `dist/` directly:
 </script>
 ```
 
-> Deploy `third-party/` next to `dist/`: showdown / mermaid / KaTeX / highlight.js are lazy-loaded at runtime, with the base path inferred from the `<script src>` above (the parent of `…/dist/`). If your layout differs, set `window.LRY_EDITOR_BASE = '/static/lry-editor/'` before loading the editor script; the highlight resources can be overridden separately via `window.LRY_EDITOR_HIGHLIGHT_BASE`.
+> Deploy `third-party/` next to `dist/`: showdown / mermaid / KaTeX / highlight.js are lazy-loaded at runtime, with the base path inferred from the `<script src>` above (the parent of `…/dist/`). If your layout differs, set `window.LRY_EDITOR_BASE = '/static/lry-editor/'` before loading the editor script; the highlight resources can be overridden separately via `window.LRY_EDITOR_HIGHLIGHT_BASE`. To restore canvas layout on the published page, optionally load `dist/lry-diagram-layout.js` (`window.LryDiagramLayout`).
 
 The default **memory adapter** stores images as dataURI and serves a mock AI — perfect for demos and evaluation.
 
@@ -95,11 +96,13 @@ Output HTML is library-agnostic and database-ready; every custom block uses sema
 <pre class="brush:js;toolbar:false;">…</pre>            <!-- code block (theme:xxx picks the highlight theme) -->
 ```
 
+> Canvas coordinates and free elements are stored in a `%% lry-layout v1` comment at the end of the Mermaid source. Mermaid ignores it, so ordinary Markdown tools still render an auto-layout diagram. Load `dist/lry-diagram-layout.js` on the published page to restore the editor layout.
+
 > If your server applies an HTML whitelist, it must keep `colspan` / `rowspan` / `width` / `style` on `td`/`th` and `a[name]` (in-page anchors) — otherwise merged cells are split on save, column widths and cell backgrounds are lost, and anchors stop working.
 
 ## lite edition (comments / guestbook)
 
-A standalone build for lightweight input scenarios — guestbooks, article comments, forum replies: `dist/lry-editor-lite.js` (**432KB / 138KB gzip** vs 682KB full), global `window.LRYEditorLite`, **API identical in shape** to the full editor.
+A standalone build for lightweight input scenarios — guestbooks, article comments, forum replies: `dist/lry-editor-lite.js` (**433KB / 138KB gzip** vs 891KB full), global `window.LRYEditorLite`, **API identical in shape** to the full editor.
 
 - **Text-only formatting**: bold / italic / underline / strike / inline code · link (Ctrl+K) / unlink · quote / ordered & bullet lists · to-do list · Unicode emoji · clear formatting
 - **Selection toolbar** (6 buttons): a format bar pops up above selected text
@@ -131,13 +134,14 @@ Via npm: `import { LRYEditorLiteAPI } from 'lry-editor/lite'`. Demo: [demo/lite.
 npm install
 npm run build         # dist/lry-editor.js (full, IIFE single file)
 npm run build:lite    # dist/lry-editor-lite.js (lite edition)
+npm run build:diagram # dist/lry-diagram-layout.js (shared published-page layout)
 npm test              # jsdom regression (contract / adapter pass-through / feature entry points)
 npm run test:browser  # real-browser regression (needs a local Chromium: CHROME_PATH, else ~/.cache/ms-playwright)
 ```
 
 ## License
 
-- MIT. Bundled runtime libs: showdown / mermaid / KaTeX are MIT, highlight.js is BSD-3-Clause (license text: `third-party/highlight/LICENSE`); the third-party list is in [LICENSE](LICENSE).
+- MIT. Bundled runtime libs: showdown / mermaid / KaTeX are MIT, highlight.js is BSD-3-Clause; license texts are in `third-party/mermaid.LICENSE`, `third-party/katex/LICENSE` and `third-party/highlight/LICENSE`. The third-party list is in [LICENSE](LICENSE).
 - **Important**: If you use this rich text plugin in a project related to you, please be sure to write to me with a simple thank-you to encourage me to continue updating and optimizing this project(contact@lirongyaoper.com).
 
 ---

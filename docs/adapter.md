@@ -11,8 +11,8 @@ lry-editor 的所有服务端交互(上传/在线管理/远程抓图/AI)都通�
 | upload | ✓ | `(file: File, onProgress?: (pct)=>void, extra: {filetype, module}) => Promise<UploadResult>` | `{ url, title?, size?, filetype? }` |
 | list | ✓ | `(filetype: 1\|2, start: number) => Promise<ListResult>` | `{ list: [{url, title?, mtime?}], total }` |
 | catch | ✓ | `(sources: string[]) => Promise<CatchResult>` | `{ state: 'SUCCESS'\|'ERROR', list: [{state, url?, source}] }` |
-| ai | ✓ | `(messages: [{role, content}]) => Promise<string>` | 模型文本输出 |
-| uploadChunk | 可选 | `(file, {filetype, module, onProgress}) => Promise<UploadResult>` | 同 upload;实现后 >5MB 文件自动走此通道 |
+| ai | ✓ | `(messages, {signal?, onDelta?}) => Promise<string>` | 模型完整文本;`onDelta(delta)` 可接收流式增量 |
+| uploadChunk | 可选 | `(file, {filetype, module, onProgress, signal?}) => Promise<UploadResult>` | 同 upload;`createUrlAdapter` 显式配置 `chunkUrl` 或 `chunked:true` 后,>5MB 文件自动走 init/part/finish |
 
 ## 各方法细则
 
@@ -35,12 +35,24 @@ lry-editor 的所有服务端交互(上传/在线管理/远程抓图/AI)都通�
 - 批量转存远程图片(Word 粘贴/图转存按钮调用)
 - 每项 `state` 独立;失败项保留原 URL
 
-### ai(messages)
+### ai(messages, options)
 
 - 入参为 OpenAI 兼容消息数组;返回模型完整文本
-- 流式:内部消费 SSE(参考 `createUrlAdapter` 中 aiUrl 实现,支持 OpenAI `delta.content` 与 `{type:'data'}` 两种帧)
-- AI 面板对输出做 mermaid 头部识别(`graph `/`mindmap`/… 开头)自动转为画板块
+- `options.signal`:取消请求(关闭 AI 面板时会 abort)
+- `options.onDelta(delta)`:流式增量回调;不实现时适配器可在完成后一次性返回完整字符串
+- 流式:内部消费 SSE(参考 `createUrlAdapter` 中 aiUrl 实现,支持 OpenAI `delta.content` 与 `{type:'data'}` 两种帧,并正确处理跨网络包的半包)
+- AI 面板对输出做 mermaid 头部识别(可跳过前置 `%%` 指令/注释)自动转为画板块
 - 结果的插入方式按内容判定:含 Markdown 结构(标题/列表/代码围栏,含 ```` ```mermaid ```` 围栏)的结果转为富文本块插入;纯文本按文本插入,其中的 `<div>` 之类不会被当成标签
+
+### 大文件分片(createUrlAdapter)
+
+默认不会假设后端支持分片。配置 `chunkUrl`(推荐)或 `chunked: true` 后,`createUrlAdapter` 会提供 `uploadChunk`,>5MB 文件自动走以下协议:
+
+1. `op=init`:提交 `filename/filesize/filetype/module`,服务端返回 `upload_id/chunk_size/chunk_total`
+2. 分片串行提交 `upload_id/index/file`,单片失败按 `retries` 重试,每次完成更新进度
+3. `op=finish`:提交 `upload_id`,服务端返回最终 `UploadResult`
+
+`timeout` 默认 300000ms,`retries` 默认 3,`retryDelay` 默认 800ms;请求支持 `AbortSignal`。
 
 ## createUrlAdapter 配置项
 
@@ -48,8 +60,13 @@ lry-editor 的所有服务端交互(上传/在线管理/远程抓图/AI)都通�
 LRYEditor.createUrlAdapter({
   base: '/api/editor',     // 端点前缀:拼 /upload /list /catch
   listUrl: '',             // 显式覆盖(可省)
-  catchUrl: '',            // 显式覆盖(可省)
+  catchUrl: '',           // 显式覆盖(可省)
   aiUrl: '',               // AI SSE 端点(OpenAI 兼容)
+  chunkUrl: '',            // 分片端点(显式配置后启用 uploadChunk)
+  chunked: false,          // 或 true:使用 base + /upload_chunk
+  timeout: 300000,         // 请求超时(ms)
+  retries: 3,              // 分片单片重试次数
+  retryDelay: 800,         // 首次重试基数(ms),后续线性增加
   csrfHeader: '',          // 如 'X-CSRF-TOKEN'
   csrfToken: null,         // string 或 ()=>string
   fileField: 'file',       // 上传表单字段名

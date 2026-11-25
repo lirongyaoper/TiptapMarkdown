@@ -11,7 +11,9 @@
  * - LryFileCard  <div class="lry-filecard">📎<a href>名</a></div>(本地文件嵌入卡)
  */
 import { Node } from '@tiptap/core';
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { mermaidNodeView } from '../ui/mermaid-view.js';
+import { STARTER } from '../diagram/kind.js';
 
 /* ---------- 画板:Mermaid 块 ---------- */
 export const LryMermaid = Node.create({
@@ -41,13 +43,39 @@ export const LryMermaid = Node.create({
     return {
       insertMermaid: (source) => ({ commands }) => commands.insertContent({
         type: this.name,
-        attrs: { src: source || 'graph TD\nA[开始] --> B{判断}\nB -->|是| C[结束]\nB -->|否| A' }
+        attrs: { src: source || STARTER.flow }
       })
     };
   }
 });
 
 /* ---------- 折叠块 ---------- */
+/* 切换开合(2026-11-24 用户报"折叠块不能折叠"):open 属性原先只在序列化时用,编辑器里没有任何地方切换它——
+   标题栏是手型光标,点下去却只是把光标放进标题,存下来的全是展开态。
+   规则按落点区分:点在标题文字上 = 进去改标题;点在标题栏其它地方(左侧箭头区、标题短时右侧的空白)= 切换折叠。
+   判断用标题文字的实际矩形(Range.getClientRects);空标题时整条标题栏都是切换区。 */
+function onTitleText(event) {
+  const head = event.target && event.target.closest ? event.target.closest('.lry-fold-head') : null;
+  if (!head) return true;
+  const range = head.ownerDocument.createRange();
+  range.selectNodeContents(head);
+  const rects = range.getClientRects();
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    if (event.clientX >= r.left - 2 && event.clientX <= r.right + 2 && event.clientY >= r.top - 2 && event.clientY <= r.bottom + 2) return true;
+  }
+  return false;
+}
+/* 在 tr 里把 foldPos 处的折叠块切换开合;收起时把光标挪到标题开头(正文不可见了,光标不能留在里面) */
+function toggleFoldTr(tr, foldPos) {
+  const fold = tr.doc.nodeAt(foldPos);
+  if (!fold || fold.type.name !== 'lryFold') return false;
+  const closing = fold.attrs.open !== false;
+  tr.setNodeMarkup(foldPos, undefined, Object.assign({}, fold.attrs, { open: !closing }));
+  if (closing) tr.setSelection(TextSelection.near(tr.doc.resolve(foldPos + 2)));
+  return true;
+}
+
 export const LryFold = Node.create({
   name: 'lryFold',
   group: 'block',
@@ -79,8 +107,59 @@ export const LryFold = Node.create({
           { type: 'lryFoldHead', content: [{ type: 'text', text: '折叠标题' }] },
           { type: 'lryFoldBody', content: [{ type: 'paragraph', content: [{ type: 'text', text: '折叠内容…' }] }] }
         ]
-      })
+      }),
+      /* 光标所在(或选区所涉)的折叠块切换开合;行柄菜单用它 */
+      toggleFold: () => ({ state, tr, dispatch }) => {
+        const $from = state.selection.$from;
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name !== 'lryFold') continue;
+          if (!dispatch) return true;
+          return toggleFoldTr(tr, $from.before(d));
+        }
+        return false;
+      }
     };
+  },
+  addProseMirrorPlugins() {
+    /* 标题栏上的单击:落在标题文字之外就切换折叠 */
+    const toggleOnHead = (view, _pos, node, nodePos, event) => {
+      if (node.type.name !== 'lryFoldHead' || (event.button !== undefined && event.button !== 0)) return false;
+      if (onTitleText(event)) return false;
+      const tr = view.state.tr;
+      if (!toggleFoldTr(tr, nodePos - 1)) return false;
+      view.dispatch(tr);
+      return true;
+    };
+    return [new Plugin({
+      key: new PluginKey('lryFoldToggle'),
+      props: {
+        handleClickOn: toggleOnHead,
+        /* 连点:ProseMirror 把 500ms 内的第二次 / 第三次点击改派给双击 / 三击处理(默认是选词 / 选段),
+           切换区里照样"每点一次切换一次",免得连点箭头变成选中标题文字 */
+        handleDoubleClickOn: toggleOnHead,
+        handleTripleClickOn: toggleOnHead,
+      },
+      /* 选区落进了收起态的正文里(正文 display:none,光标会消失、打字打进看不见的地方),分两种来源:
+         ① 纯移动光标 / 选区(查找定位、大纲跳转等)——把折叠块展开;
+         ② 改了文档之后光标落进去(载入内容时的默认光标位置、Markdown 分栏回灌)——收起态是用户存的,
+            不能动,只把光标挪到标题开头。不区分来源的话,载入带收起折叠块的内容会把收起态悄悄展开。 */
+      appendTransaction(transactions, _oldState, newState) {
+        if (!transactions.some((tr) => tr.selectionSet || tr.docChanged)) return null;
+        const { $from, from } = newState.selection;
+        let hit = null;
+        for (let d = $from.depth; d > 0 && !hit; d--) {
+          const n = $from.node(d);
+          if (n.type.name !== 'lryFold' || n.attrs.open !== false) continue;
+          const foldPos = $from.before(d);
+          if (from >= foldPos + 1 + n.firstChild.nodeSize) hit = { foldPos, node: n }; /* 在标题里:保持收起 */
+        }
+        if (!hit) return null;
+        const tr = newState.tr;
+        if (transactions.every((t) => !t.docChanged)) tr.setNodeMarkup(hit.foldPos, undefined, Object.assign({}, hit.node.attrs, { open: true }));
+        else tr.setSelection(TextSelection.near(tr.doc.resolve(hit.foldPos + 2)));
+        return tr;
+      }
+    })];
   }
 });
 

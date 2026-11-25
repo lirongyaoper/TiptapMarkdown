@@ -60,34 +60,78 @@ export function fixedTopInset() {
 
 /* ---------------- 弹层(下拉菜单/颜色面板/表情) ---------------- */
 let openPopover = null;
+/* 刚关闭的那个弹层的落位信息(触发它的元素 + 弹层自身的位置),给"触发器不可见"的新弹层兜底。
+   两种情况量到的触发器位置全是 0:行柄菜单的「表情」项(菜单先关,项随之脱离文档)、
+   「更多」里点的原按钮(是 display:none)——面板会钉在页面左上角、脱离编辑区(2026-11-24 用户反馈)。
+   只认 1 秒内的记录:委托触发是同步发生的,更早的不该再影响落位。 */
+let lastClosed = null;
+
+/* 元素的视口矩形;不可见(收进「更多」)或已脱离文档时返回 null */
+function rectOf(el) {
+  if (!el || typeof el.getBoundingClientRect !== 'function') return null;
+  let r;
+  try { r = el.getBoundingClientRect(); } catch (e) { return null; }
+  if (!r || (!r.width && !r.height && !r.left && !r.top)) return null;
+  return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+}
+
+/* 不走 popover() 的自绘面板(斜杠面板)关闭前登记自己的位置:它里面的项若弹出一个"触发器不可见"的
+   弹层(斜杠 → 表情,而表情按钮收进了「更多」),新弹层沿这里落位 */
+export function rememberPopoverPlace(el) {
+  const r = rectOf(el);
+  if (r) lastClosed = { at: Date.now(), trigger: null, self: r };
+}
+
 export function closePopover() {
   /* 先清引用再销毁:销毁会让弹层内持有焦点的元素同步触发 blur,若其 blur 处理里再次
      关闭弹层(取色器十六进制输入框"失焦即应用"即此情形),重入时引用已空 → 空操作;
      否则会对同一节点二次 removeChild 抛 NotFoundError(浏览器实测发现) */
   const p = openPopover;
   openPopover = null;
-  if (p) p.destroy();
+  if (!p) return;
+  lastClosed = { at: Date.now(), trigger: rectOf(p.triggerEl), self: rectOf(p.el) };
+  p.destroy();
 }
 /**
  * anchorEl 下方弹出 content;点击外部/滚动关闭;单例。
- * opts: { className, onClose }——onClose 在弹层以任何方式关闭时调用
+ * opts: { className, onClose, at }——onClose 在弹层以任何方式关闭时调用;
+ * at: { x, y } 按视口坐标落位(画布的右键菜单):菜单左上角贴着这个点,右边 / 下边放不下就翻到左 / 上。此时 anchorEl 只用来判断"点在外面"
  */
 export function popover(anchorEl, content, opts) {
+  /* 触发器的位置要在关旧弹层之前量:触发器本身可能就在旧弹层里,旧弹层一关它就脱离文档 */
+  let rect = rectOf(anchorEl);
   closePopover();
   const onClose = opts && typeof opts.onClose === 'function' ? opts.onClose : null;
   const wrap = h('div', { class: 'lry-popover' + (opts && opts.className ? ' ' + opts.className : '') }, content);
   document.body.appendChild(wrap);
-  const rect = anchorEl.getBoundingClientRect();
   const isMobile = window.innerWidth <= 640;
-  if (isMobile) wrap.classList.add('lry-popover-sheet');
+  if (opts && opts.at && !isMobile) {
+    const left0 = opts.at.x, top0 = opts.at.y;
+    let left = left0 + wrap.offsetWidth > window.innerWidth - 8 ? Math.max(8, left0 - wrap.offsetWidth) : Math.max(8, left0);
+    let top = top0 + wrap.offsetHeight > window.innerHeight - 8 ? Math.max(fixedTopInset() + 4, top0 - wrap.offsetHeight) : Math.max(fixedTopInset() + 4, top0);
+    wrap.style.left = left + 'px';
+    wrap.style.top = top + 'px';
+  } else if (isMobile) wrap.classList.add('lry-popover-sheet');
   else {
-    let left = Math.min(rect.left, window.innerWidth - wrap.offsetWidth - 8);
-    wrap.style.left = Math.max(8, left) + 'px';
-    /* 下方放不下(锚点贴近视口底部,如状态栏字数/末行按钮)且上方放得下 → 向上弹出。
-       原先一律向下,贴底的锚点弹出的面板会被视口裁掉(2026-11-24 浏览器实测发现) */
-    const below = rect.bottom + 4;
-    const above = rect.top - wrap.offsetHeight - 4;
-    wrap.style.top = (below + wrap.offsetHeight > window.innerHeight - 4 && above >= 4 ? above : below) + 'px';
+    /* 触发器不可见 / 已脱离文档:沿"是哪个弹层把它弹出来的"回落位——那个弹层的触发器
+       (「更多」按钮、行柄「+」)优先,其次那个弹层自身的位置(斜杠面板),都没有才退到
+       视口顶部居中。拿全 0 的矩形硬算,面板就钉在页面左上角 (8, 4) */
+    if (!rect) {
+      const lc = lastClosed;
+      rect = (lc && Date.now() - lc.at < 1000 && (lc.trigger || lc.self)) || null;
+    }
+    if (!rect) {
+      wrap.style.left = Math.max(8, Math.round((window.innerWidth - wrap.offsetWidth) / 2)) + 'px';
+      wrap.style.top = (fixedTopInset() + 8) + 'px';
+    } else {
+      let left = Math.min(rect.left, window.innerWidth - wrap.offsetWidth - 8);
+      wrap.style.left = Math.max(8, left) + 'px';
+      /* 下方放不下(锚点贴近视口底部,如状态栏字数/末行按钮)且上方放得下 → 向上弹出。
+         原先一律向下,贴底的锚点弹出的面板会被视口裁掉(2026-11-24 浏览器实测发现) */
+      const below = rect.bottom + 4;
+      const above = rect.top - wrap.offsetHeight - 4;
+      wrap.style.top = (below + wrap.offsetHeight > window.innerHeight - 4 && above >= 4 ? above : below) + 'px';
+    }
   }
   const onDoc = (e) => {
     if (!wrap.contains(e.target) && e.target !== anchorEl && !anchorEl.contains(e.target)) closePopover();
@@ -104,13 +148,18 @@ export function popover(anchorEl, content, opts) {
   };
   setTimeout(() => {
     document.addEventListener('mousedown', onDoc);
+    /* 也要听 pointerdown:画布在 pointerdown 上调了 preventDefault,浏览器就不再派发 mousedown 了——
+       只听 mousedown 的话,在画布里点一下弹层永远不关(2026-11-24 右键菜单实测) */
+    if (typeof window.PointerEvent === 'function') document.addEventListener('pointerdown', onDoc);
     document.addEventListener('touchstart', onDoc, { passive: true });
     window.addEventListener('scroll', onScroll, { capture: true, passive: true });
   }, 0);
   openPopover = {
     el: wrap,
+    triggerEl: anchorEl,
     destroy() {
       document.removeEventListener('mousedown', onDoc);
+      if (typeof window.PointerEvent === 'function') document.removeEventListener('pointerdown', onDoc);
       document.removeEventListener('touchstart', onDoc);
       window.removeEventListener('scroll', onScroll, { capture: true });
       if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
@@ -186,7 +235,8 @@ export function menuList(items, onPick, activeFn) {
     if (it === '-') { ul.appendChild(h('div', { class: 'lry-menu-sep' })); return; }
     const item = h('button', {
       type: 'button',
-      class: 'lry-menu-item' + (it.disabled ? ' lry-menu-disabled' : ''),
+      class: 'lry-menu-item' + (it.disabled ? ' lry-menu-disabled' : '') + (it.danger ? ' lry-menu-danger' : ''),
+      title: it.title || '',
       onclick: () => { if (!it.disabled) { onPick(it); closePopover(); } }
     },
     it.html ? h('span', { class: 'lry-menu-html', html: it.html }) : null,

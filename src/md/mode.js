@@ -11,6 +11,7 @@
  *  - 退出:零转换,预览内容原样保留
  */
 import { ensureShowdown, safeMdToHtml, safeHtmlToMd, normalizeYuqueHtml } from './ensure.js';
+import { STARTER } from '../diagram/kind.js';
 
 /* mermaid 围栏与任务列表产物归一(实现见 md/ensure.js normalizeYuqueHtml) */
 function normalizeMermaidHtml(html) {
@@ -378,6 +379,8 @@ export function openSrcLineMenu(inst, ta, line, anchor) {
     I('高亮块·成功', wrapSingleton(':::success', ':::'), ':::success'),
     I('高亮块·警示', wrapSingleton(':::warning', ':::'), ':::warning'),
     I('高亮块·危险', wrapSingleton(':::danger', ':::'), ':::danger'),
+    /* 折叠块(2026-11-24):与富文本模式的折叠块同一份契约,容器语法见 md-core 的 extractContainers */
+    I('折叠块', wrapSingleton(':::fold 折叠标题', ':::'), ':::fold'),
     I('引用', () => setLinePrefix(ta, line, '> ', /^>\s?/), '>'),
     I('无序列表', () => setLinePrefix(ta, line, '- ', /^[-*]\s+/), '-'),
     I('有序列表', () => setLinePrefix(ta, line, '1. ', /^\d+\.\s+/), '1.'),
@@ -395,9 +398,11 @@ export function openSrcLineMenu(inst, ta, line, anchor) {
     G('插入(下方)'),
     I('分割线', insertBelow('---'), '---'),
     I('表格', insertBelow('| 列1 | 列2 |\n| --- | --- |\n|  |  |'), '| |'),
-    I('画板(流程图)', insertBelow('```mermaid\ngraph TD\nA[开始] --> B{条件?}\nB -->|是| C[处理]\nB -->|否| D[结束]\n```'), 'mermaid'),
-    I('思维导图', insertBelow('```mermaid\nmindmap\n  根主题\n    分支一\n      要点\n```'), 'mindmap'),
-    I('UML 类图', insertBelow('```mermaid\nclassDiagram\nclass 文章 {\n  +标题\n}'), 'uml')
+    /* 与富文本模式的起始模板同一份(diagram/kind.js);围栏在导出侧也带 mermaid 标记,往返不丢画板 */
+    I('画板(流程图)', insertBelow('```mermaid\n' + STARTER.flow + '\n```'), 'mermaid'),
+    I('思维导图', insertBelow('```mermaid\n' + STARTER.mind + '\n```'), 'mindmap'),
+    /* 此前这条缺结尾围栏,未闭合的围栏会把它下面的内容全吞进代码块 */
+    I('UML 类图', insertBelow('```mermaid\n' + STARTER.class + '\n```'), 'uml')
   );
   popover(anchor, menu, { className: 'lry-row-pop' });
 }

@@ -57,9 +57,31 @@ import { matchItems, buildGroups, isTrigger } from './md/slash-menu.js';
 import { insertAiResult, looksMarkdown } from './ai/panel.js';
 import { isWaitingLine } from './ui/row-handle.js';
 import { tokenize, detectLanguage, themeClass } from './ui/code-highlight.js';
+import { applyMath, selectedMath, setMathForm, PALETTE as FORMULA_PALETTE } from './ui/formula.js';
+/* 画板可视化编辑(v1.3.0):语法层是纯函数,挂到 _internals 供回归直接断言 */
+import { parseFlow, serializeFlow, nextNodeId, readNode, readEdge, encodeLabel, decodeLabel, flowAdd, flowAddEdge, flowReconnect, flowRemoveNode, flowRemoveEdge, flowShift } from './diagram/flow-syntax.js';
+import { parseMind, serializeMind, flattenMind, sibling, detachMind, containsMind, readMindNode, writeMindNode } from './diagram/mind-syntax.js';
+import {
+  parseClass, serializeClass, nextClassId, classAddClass, classAddRel, classRemove, classRemoveRel, classReconnect, classRemoveNote, classSetNote, classAddNote,
+  classAddMember, classRemoveMember, classMoveMember, classSetMemberText, classRename, classIdProblem, classSetDirection, classSetAnnotation, classSetLabel,
+  classLabel, classSetRelType, classSwapRel, classSetRelLabel, classSetCard, classSetFill, REL_TYPES, relOpFor, relTypeOf, decodeText, encodeRelationLabel,
+  encodeClassLabel, encodeNote, encodeMember, memberKind, memberProblem, CLASS_LABELS
+} from './diagram/class-syntax.js';
+import { detectKind, VISUAL_KINDS, STARTER, BLANK } from './diagram/kind.js';
+/* 画布布局层(v1.4.0 自由画布):同样是纯函数,挂到 _internals */
+import {
+  LAYOUT_VERSION, emptyLayout, layoutHasContent, parseLayout, stripLayout, attachLayout, MERMAID_INIT, MIND_PALETTE, MIND_TEXT, MIND_ROOT_BG,
+  ITEM_KINDS, SHAPE_FORMS, layoutKind, rectOf, unionRect, overlaps, avoidOverlap, anchorOf, pickSides, routePath, tidyLayout, itemRect, renderItems,
+  buildScene, nodeRectOf, setNodePos, rerouteEdges, fitCluster, fitViewBox, applyLayout, groupRect, mindPlaceSubtree, mindSpawnPos, mindSubtree, mindSwapSlots, mindCloseGap, placeNear
+} from './diagram/layout-core.js';
+/* v1.4.1 自由画布第二步:自由元素 / 剪贴板 / 导出的纯函数,同样挂到 _internals 供回归断言 */
+import { nextItemId, getItem, makeItem, cloneItem, offsetItem, resizeRect, resizeSticker, nearestSide, itemBox, linePoints, itemHasText, ITEM_LABELS, FORM_LABELS, FORMS, ITEM_FILLS, ITEM_STROKES, LINE_WIDTHS, FONT_SIZES, RESIZE_DIRS } from './diagram/items.js';
+import { encodeClipboard, decodeClipboard, COPY_MARK, setMemory, getMemory } from './diagram/clipboard.js';
+import { svgForExport, isSvgImageTextUnsafe } from './diagram/export.js';
+import { TOOL_ICON, TOOLS } from './diagram/canvas-tools.js';
 import './styles/lry-editor.css';
 
-export const VERSION = '1.2.1';
+export const VERSION = '1.4.1';
 
 function pickEl(target, doc) {
   if (!target) return null;
@@ -481,6 +503,8 @@ function create(options) {
       if (instances.get(textarea.name) === instance) instances.delete(textarea.name);
     }
   };
+  /* 画板等 NodeView 只拿得到 Tiptap 的 editor:留一个引用让它找得回实例(上传图片要 inst.options.module、开图片对话框要 inst) */
+  Object.defineProperty(editor, 'lryInst', { value: instance, configurable: true });
 
   /* 工具栏/状态栏/Markdown 分栏/slash 菜单/AI 装配 */
   mountToolbar(instance);
@@ -496,8 +520,8 @@ function create(options) {
   /* 划词浮动工具条(2026-11-21)与上下文工具条(2026-11-23):readonly 态不装配 */
   if (options.readonly !== true) {
     instance._bubbleDestroy = mountBubbleMenu(instance, FULL_BUBBLE_TOOLS, {
-      /* 选中图片时让位给上下文工具条 */
-      suppress: () => !!(instance._ctxApi && instance._ctxApi.isImageSelected())
+      /* 选中图片/公式时让位给上下文工具条(节点选区非空选区,否则两条浮层叠加) */
+      suppress: () => !!(instance._ctxApi && (instance._ctxApi.isImageSelected() || instance._ctxApi.isMathSelected()))
     });
     instance._ctxCleanup = mountContextToolbar(instance);
   }
@@ -559,7 +583,22 @@ if (typeof window !== 'undefined') {
       resolveContext, contextTools, collectMatches, typesetDoc, indentCode,
       computeStats, buildDocument, absoluteUrls, setCellBackground, cellBackgroundAt,
       normalizeHref, matchItems, buildGroups, isTrigger, insertAiResult, looksMarkdown,
-      isWaitingLine, blankClickAction, tokenize, detectLanguage, themeClass
+      isWaitingLine, blankClickAction, tokenize, detectLanguage, themeClass,
+      applyMath, selectedMath, setMathForm, FORMULA_PALETTE,
+      parseFlow, serializeFlow, nextNodeId, readNode, readEdge, encodeLabel, decodeLabel,
+      flowAdd, flowAddEdge, flowReconnect, flowRemoveNode, flowRemoveEdge, flowShift,
+      parseMind, serializeMind, flattenMind, sibling, detachMind, containsMind, readMindNode, writeMindNode,
+      parseClass, serializeClass, nextClassId, classAddClass, classAddRel, classRemove, classRemoveRel, classReconnect, classRemoveNote, classSetNote, classAddNote,
+      classAddMember, classRemoveMember, classMoveMember, classSetMemberText, classRename, classIdProblem, classSetDirection, classSetAnnotation,
+      classSetLabel, classLabel, classSetRelType, classSwapRel, classSetRelLabel, classSetCard, classSetFill, REL_TYPES, relOpFor, relTypeOf,
+      decodeText, encodeRelationLabel, encodeClassLabel, encodeNote, encodeMember, memberKind, memberProblem, CLASS_LABELS,
+      detectKind, VISUAL_KINDS, STARTER, BLANK,
+      LAYOUT_VERSION, emptyLayout, layoutHasContent, parseLayout, stripLayout, attachLayout, MERMAID_INIT, MIND_PALETTE, MIND_TEXT, MIND_ROOT_BG,
+      ITEM_KINDS, SHAPE_FORMS, layoutKind, rectOf, unionRect, overlaps, avoidOverlap, anchorOf, pickSides, routePath, tidyLayout, itemRect, renderItems,
+      buildScene, nodeRectOf, setNodePos, rerouteEdges, fitCluster, fitViewBox, applyLayout, groupRect, mindPlaceSubtree, mindSpawnPos, mindSubtree, mindSwapSlots, mindCloseGap, placeNear,
+      nextItemId, getItem, makeItem, cloneItem, offsetItem, resizeRect, resizeSticker, nearestSide, itemBox, linePoints, itemHasText,
+      ITEM_LABELS, FORM_LABELS, FORMS, ITEM_FILLS, ITEM_STROKES, LINE_WIDTHS, FONT_SIZES, RESIZE_DIRS,
+      encodeClipboard, decodeClipboard, COPY_MARK, setMemory, getMemory, svgForExport, isSvgImageTextUnsafe, TOOL_ICON, TOOLS
     },
     enumerable: false
   });

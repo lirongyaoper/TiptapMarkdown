@@ -15,7 +15,11 @@ const GROUPS = [
 /* 清理误植词 */
 GROUPS.forEach((g) => { g[1] = g[1].filter((e) => !/^[\u4e00-\u9fa5]/.test(e) && e.length); });
 
-export function openEmojiPicker(anchor, inst) {
+/**
+ * @param opts { onPick(emoji), title }  给了 onPick:选完交给调用方(画板贴纸),不往正文里插
+ */
+export function openEmojiPicker(anchor, inst, opts) {
+  const pick = opts && typeof opts.onPick === 'function' ? opts.onPick : null;
   const tabs = h('div', { class: 'lry-emoji-tabs' });
   const pane = h('div', { class: 'lry-emoji-pane' });
   const show = (gi) => {
@@ -23,7 +27,8 @@ export function openEmojiPicker(anchor, inst) {
     [...tabs.children].forEach((c, i) => c.classList.toggle('lry-tab-active', i === gi));
     GROUPS[gi][1].forEach((e) => {
       pane.appendChild(h('button', { type: 'button', class: 'lry-emoji', onclick: () => {
-        inst.editor.chain().focus().insertContent(e).run();
+        if (pick) pick(e);
+        else inst.editor.chain().focus().insertContent(e).run();
         closePopover();
       } }, e));
     });
@@ -32,5 +37,6 @@ export function openEmojiPicker(anchor, inst) {
     tabs.appendChild(h('button', { type: 'button', class: 'lry-tab', onclick: () => show(i) }, name));
   });
   show(0);
-  popover(anchor, h('div', { class: 'lry-emoji-panel' }, tabs, pane), { className: 'lry-emoji-pop' });
+  const title = opts && opts.title ? h('div', { class: 'lry-emoji-title' }, opts.title) : null;
+  popover(anchor, h('div', { class: 'lry-emoji-panel' }, title, tabs, pane), { className: 'lry-emoji-pop' + (title ? ' lry-emoji-pop-titled' : '') });
 }

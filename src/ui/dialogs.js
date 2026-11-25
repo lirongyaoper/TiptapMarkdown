@@ -77,7 +77,9 @@ D.simpleupload = (inst) => {
 };
 
 function openImageDialog(inst, opts) {
-  /* 编辑模式(2026-11-23):选中图片后双击/上下文条进入,原位更新属性而非新插一张 */
+  /* pick 模式(2026-11-25):画板要往图上放一张图——选完把地址交给 opts.onPick(src),不往正文里插图。
+     编辑模式(2026-11-23):选中图片后双击/上下文条进入,原位更新属性而非新插一张 */
+  const pick = opts && typeof opts.onPick === 'function' ? opts.onPick : null;
   const sel = inst.editor.state.selection;
   const editing = opts && opts.edit && sel instanceof NodeSelection && sel.node.type.name === 'image' ? sel.node : null;
   const urlIn = textField('/uploads/… 或 https://…', editing ? editing.attrs.src || '' : '');
@@ -111,6 +113,10 @@ function openImageDialog(inst, opts) {
         const results = [];
         for (const f of files) results.push(await uploadFile(f, { filetype: 1, module: inst.options.module }, inst));
         if (results.length === 1) { urlIn.value = results[0].url; pickedUrl = results[0].url; }
+        else if (pick) {
+          results.forEach((r) => pick(r.url));
+          dlgApi.close(); return;
+        }
         else if (editing) {
           inst.editor.chain().updateAttributes('image', { src: results[0].url })
             .focus().insertContent(results.slice(1).map((r) => ({ type: 'image', attrs: { src: r.url } }))).run();
@@ -155,7 +161,8 @@ function openImageDialog(inst, opts) {
     for (const f of files) {
       try {
         const r = await uploadFile(f, { filetype: 1, module: inst.options.module }, inst);
-        if (editing) inst.editor.chain().updateAttributes('image', { src: r.url }).run();
+        if (pick) pick(r.url);
+        else if (editing) inst.editor.chain().updateAttributes('image', { src: r.url }).run();
         else inst.editor.chain().focus().setImage({ src: r.url }).run();
       } catch (err) { toast(err.message, 'error'); }
     }
@@ -163,7 +170,7 @@ function openImageDialog(inst, opts) {
 
   uploadBtn.style.display = 'none'; /* 触发器藏在拖拽区后,不独立展示 */
   const dlgApi = dialog({
-    title: editing ? '编辑图片' : '插入图片', width: '560px',
+    title: (opts && opts.title) || (editing ? '编辑图片' : '插入图片'), width: '560px',
     body: h('div', null, tabBar, pages.online, pages.up, pages.remote),
     onOk() {
       const src = (urlIn.value || '').trim() || pickedUrl;
@@ -172,8 +179,10 @@ function openImageDialog(inst, opts) {
         src, alt: altIn.value || null, title: altIn.value || null,
         width: wIn.value || null, height: hIn.value || null
       };
-      if (editing) inst.editor.chain().updateAttributes('image', attrs).run();
+      if (pick) pick(attrs.src);
+      else if (editing) inst.editor.chain().updateAttributes('image', attrs).run();
       else inst.editor.chain().focus().setImage(attrs).run();
+      dlgApi.close(); /* 点了「确定」要关掉对话框(2026-11-25 修:此前不关,再点一次又插一张) */
     }
   });
   loadList();
@@ -302,7 +311,8 @@ D.help = () => {
     '<p><b>图片</b>:点击图片出现对齐/宽度/说明操作条,拖右下角等比缩放,双击进入编辑</p>' +
     '<p><b>代码块</b>:点块顶栏的语言名切换语言(也可直接搜索);编辑时实时语法高亮,与发布后同色;向"纯文本"代码块粘贴多行代码会自动识别语言。Tab / Shift+Tab 缩进与反缩进(支持多行选区)</p>' +
     '<p><b>跳出代码块</b>:空行上按回车(连按两次回车即退出)、按 Esc、或在末行按 ↓;也可点击代码块下方的空白处</p>' +
-    '<p><b>继续书写</b>:正文末尾始终预告着下一行——点它即新起一段,点行首的「+」插入图片/表格/画板等内容</p>' +
+    '<p><b>继续书写</b>:正文末尾始终预告着下一行——点它即新起一段,点行首的「+」插入图片/表格/画板等内容;在空行上插入的内容直接占据这一行,其后自动留出下一行</p>' +
+    '<p><b>公式</b>:行首「+」或输入 <code>/</code> 选「公式」,在对话框里写 LaTeX(可点选符号,实时预览,Ctrl+Enter 确认);编辑时直接显示排版结果,点击公式出现操作条(编辑 / 行内↔块级 / 删除),双击公式即可修改</p>' +
     '<p><b>大文件</b>:视频等超过 5MB 自动走分片上传,支持断点重试;拖入文件即可上传插入</p>' }) });
 };
 

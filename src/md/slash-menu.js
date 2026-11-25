@@ -8,13 +8,16 @@
  * - 过滤时跨分组搜索(去重),匹配 label / 别名(英文·全拼·首字母)
  * - 面板原地重绘不闪;对话框入口按编辑器实例触发(多编辑器页面不再误开第一个实例)
  */
-import { h, toast, fixedTopInset } from '../ui/dom.js';
+import { h, toast, fixedTopInset, rememberPopoverPlace } from '../ui/dom.js';
+import { openFormulaDialog } from '../ui/formula.js';
+import { insertDiagram } from '../ui/mermaid-view.js';
+import { STARTER } from '../diagram/kind.js';
 
 const MERMAID = {
-  flow: 'graph TD\nA[开始] --> B{条件?}\nB -->|是| C[处理]\nB -->|否| D[结束]\nC --> D',
-  mind: 'mindmap\n  根主题\n    分支一\n      要点1\n      要点2\n    分支二\n      要点3',
+  flow: STARTER.flow,
+  mind: STARTER.mind,
   seq: 'sequenceDiagram\nparticipant 用户\nparticipant 服务器\n用户->>服务器: 请求\n服务器-->>用户: 响应',
-  cls: 'classDiagram\nclass 文章 {\n  +标题\n  +发布()\n}\nclass 评论 {\n  +内容\n}',
+  cls: STARTER.class, /* UML 类图:与行柄、Markdown 模式同一份起始模板 */
   state: 'stateDiagram-v2\n[*] --> 草稿\n草稿 --> 发布: 审核\n发布 --> [*]',
   arch: 'graph LR\nnginx --> php-fpm\nphp-fpm --> mysql\nphp-fpm --> oss',
   gantt: 'gantt\n  title 项目计划\n  dateFormat YYYY-MM-DD\n  section 阶段一\n  需求 :a1, 2026-11-16, 7d\n  section 阶段二\n  开发 :a2, after a1, 14d',
@@ -30,11 +33,13 @@ const TOOL = (cmd) => (ed, inst) => {
   else toast('当前工具栏配置未启用该功能', 'error');
 };
 const codeBlock = (ed) => ed.chain().focus().setCodeBlockLang('plain').run();
+/* 公式直接开对话框(不经工具栏按钮:要带入初始形式,且当前预设未启用该按钮时也能用) */
+const formula = (mode) => (ed) => openFormulaDialog(ed, { mode });
 
 export function buildGroups() {
   const day = () => new Date().toLocaleDateString('zh-CN');
   const clock = () => new Date().toLocaleTimeString('zh-CN', { hour12: false });
-  const mm = (src) => (ed) => ed.chain().focus().insertMermaid(src).run();
+  const mm = (src) => (ed) => insertDiagram(ed, src); /* 插入即聚焦画板 */
   return [
     ['常用', [
       ...[1, 2, 3, 4, 5, 6].map((lv) => ({
@@ -50,7 +55,7 @@ export function buildGroups() {
       { label: '表格', hint: '3×3', alias: 'table biaoge bg', run: (ed) => ed.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
       { label: '图片', hint: 'img', alias: 'image img tupian tp', run: TOOL('insertimage') },
       { label: '分割线', hint: '---', alias: 'hr divider line fengexian fgx', run: (ed) => ed.chain().focus().setHorizontalRule().run() },
-      { label: '公式', hint: '$$', alias: 'formula math katex gongshi gs tex latex', run: TOOL('formula') }
+      { label: '公式', hint: '$$', alias: 'formula math katex gongshi gs tex latex', run: formula('block') }
     ]],
     ['基础卡片', [
       { label: '附件卡', hint: '📎', alias: 'file attachment fujian wj', run: TOOL('attachment') },
@@ -72,8 +77,8 @@ export function buildGroups() {
     ]],
     ['程序员专区', [
       { label: '代码块', hint: '```', alias: 'code codeblock daima dm', run: codeBlock },
-      { label: '公式·行内', hint: '$', alias: 'inline formula math gongshi hangnei', run: TOOL('formula') },
-      { label: '公式·块级', hint: '$$', alias: 'block formula math gongshi kuaiji', run: TOOL('formula') },
+      { label: '公式·行内', hint: '$', alias: 'inline formula math gongshi hangnei', run: formula('inline') },
+      { label: '公式·块级', hint: '$$', alias: 'block formula math gongshi kuaiji', run: formula('block') },
       { label: '流程图', hint: 'mermaid', alias: 'flowchart flow liuchengtu lct', run: mm(MERMAID.flow) },
       { label: '时序图', hint: 'mermaid', alias: 'sequence shixutu sxt', run: mm(MERMAID.seq) },
       { label: '类图', hint: 'mermaid', alias: 'uml class leitu', run: mm(MERMAID.cls) },
@@ -192,6 +197,9 @@ export function mountSlashMenu(inst) {
     const { $from } = ed.state.selection;
     const trigPos = anchor.pos;
     const to = $from.pos;
+    /* 先登记面板位置再关:面板里的项(斜杠 → 表情)可能弹出一个触发器不可见的弹层
+       (表情按钮收进了「更多」),新弹层沿斜杠面板的位置落位,而不是钉到页面左上角 */
+    rememberPopoverPlace(panel);
     close();
     /* 先删「触发符 + 过滤词」再执行:转换类动作作用于已清空的段落,不留残字 */
     if (trigPos < to) ed.chain().focus().deleteRange({ from: trigPos, to }).run();

@@ -88,12 +88,43 @@ try {
   let s = await page.evaluate(() => ({
     version: window.LRYEditor.VERSION, buttons: document.querySelectorAll('.lry-tool-btn').length,
     adapterGlobals: typeof window.LRYEditor.setAdapter + '/' + typeof window.LRYEditor.createUrlAdapter,
-    mermaid: !!window.mermaid, hasInst: !!window.LRYEditor.instances.size, hljs: !!window.hljs
+    mermaid: !!window.mermaid, hasInst: !!window.LRYEditor.instances.size, hljs: !!window.hljs,
+    diagram: !!document.querySelector('.lry-editor .lry-diagram'),
+    diagramKind: (document.querySelector('.lry-editor .lry-diagram') || {}).dataset && document.querySelector('.lry-editor .lry-diagram').dataset.kind,
+    diagramTools: document.querySelectorAll('.lry-editor .lry-diagram-dock-btn').length,
+    diagramCanvas: !!(document.querySelector('.lry-editor .lry-diagram') || {}).__lryCanvas
   }));
-  ok(s.version === '1.2.1', 'full: 版本 1.2.1(' + s.version + ')');
+  ok(s.version === '1.4.1', 'full: 版本 1.4.1(' + s.version + ')');
   ok(s.buttons >= 80 && s.hasInst, 'full: 工具栏 ' + s.buttons + ' 钮,实例已建');
   ok(s.adapterGlobals === 'function/function', 'full: 适配器全局入口(setAdapter / createUrlAdapter)');
   ok(s.mermaid, 'third-party 基址推断:mermaid 已从包内 third-party/ 加载');
+  ok(s.diagram && s.diagramKind === 'flow' && s.diagramCanvas && s.diagramTools === 8, '画板:流程图可视化编辑与 8 个自由画布工具已接入');
+
+  /* ---- 画板工具切换 / 源码模式隐藏并恢复布局块 ---- */
+  await page.evaluate(() => { window.__inst = [...window.LRYEditor.instances.values()][0]; });
+  const diagramTool = await page.evaluate(() => {
+    const d = document.querySelector('.lry-editor .lry-diagram');
+    d.querySelector('[data-tool="text"]').click();
+    const picked = d.querySelector('.lry-diagram-stage').dataset.tool;
+    d.querySelector('[data-tool="select"]').click();
+    return { picked, restored: d.querySelector('.lry-diagram-stage').dataset.tool };
+  });
+  ok(diagramTool.picked === 'text' && diagramTool.restored === 'select', '画板:自由工具可切换并退回选择');
+  await page.evaluate(() => {
+    const d = document.querySelector('.lry-editor .lry-diagram');
+    [...d.querySelectorAll('.lry-diagram-tab')].find((b) => b.textContent === '源码').click();
+    const ta = d.querySelector('.lry-diagram-src-ta');
+    ta.value = 'graph TD\n  A-->B\n%% lry-layout v1\n%% {"v":1,"n":{"A":[10,20]},"items":[]}';
+    ta.dispatchEvent(new Event('input'));
+  });
+  await sleep(600);
+  await page.evaluate(() => {
+    const d = document.querySelector('.lry-editor .lry-diagram');
+    [...d.querySelectorAll('.lry-diagram-tab')].find((b) => b.textContent === '可视化').click();
+  });
+  await sleep(1200);
+  const diagramLayout = await page.evaluate(() => window.__inst.getContent());
+  ok(/%% lry-layout v1/.test(diagramLayout) && /"A":\[10,20\]/.test(diagramLayout), '画板:源码模式隐藏布局,切回可视化后原样写回');
 
   /* ---- 编辑态高亮:demo 首页自带代码块样例,载入即着色;资源取自 third-party/highlight/ ---- */
   ok(s.hljs, 'demo 首页自带代码块样例:载入即着色(highlight.js 随首屏加载)');
@@ -143,6 +174,25 @@ try {
   await sleep(300);
   const afterPick = await page.evaluate(() => ({ label: document.querySelector('.lry-editor .lry-codebar-lang').textContent, html: window.__inst.getContent().slice(0, 70), pop: !!document.querySelector('.lry-codelang-pop') }));
   ok(afterPick.label === 'Python' && /brush:python;toolbar:false;theme:monokai;/.test(afterPick.html) && !afterPick.pop, '搜索并回车:切换为 Python,保留主题');
+
+  /* ---- 公式 KaTeX 编辑态 / 符号面板 ---- */
+  await page.evaluate(() => window.__inst.setContent('<p>公式 <span class="lry-math">\\(x^2\\)</span></p>'));
+  await sleep(1200);
+  const formula = await page.evaluate(() => ({
+    rendered: !!document.querySelector('.lry-editor .lry-math .katex'),
+    html: window.__inst.getContent()
+  }));
+  ok(formula.rendered && /<span class="lry-math">\\\(x\^2\\\)<\/span>/.test(formula.html), '公式:KaTeX 编辑态渲染且序列化保持定界符契约');
+  await page.evaluate(() => document.querySelector('.lry-editor [data-cmd="formula"]').click());
+  await sleep(250);
+  const formulaPalette = await page.evaluate(() => ({
+    open: !!document.querySelector('.lry-formula'),
+    symbols: document.querySelectorAll('.lry-formula-sym').length,
+    tabs: document.querySelectorAll('.lry-formula-tabs .lry-tab').length
+  }));
+  ok(formulaPalette.open && formulaPalette.symbols >= 20 && formulaPalette.tabs >= 5, '公式:对话框符号面板与实时预览入口');
+  await page.evaluate(() => document.querySelectorAll('.lry-dialog-x').forEach((x) => x.click()));
+  await sleep(200);
 
   /* ---- 预告下一行 / 回车跳出 ---- */
   await page.evaluate(() => { window.__inst.setContent('<p>段落文字</p><pre class="brush:js;toolbar:false;">const a = 1;</pre>'); });
@@ -228,7 +278,7 @@ try {
   await page.goto(base + '/demo/lite.html', { waitUntil: 'networkidle0' });
   await sleep(400);
   const lite = await page.evaluate(() => ({ version: window.LRYEditorLite.VERSION, buttons: document.querySelectorAll('.lry-lite .lry-tool-btn').length, has: !!document.querySelector('.lry-lite') }));
-  ok(lite.version === '1.2.1' && lite.has, 'lite: 版本 1.2.1,已挂载');
+  ok(lite.version === '1.4.1' && lite.has, 'lite: 版本 1.4.1,已挂载');
   ok(lite.buttons === 15, 'lite: 工具栏 15 钮(' + lite.buttons + ')');
 
   ok(pageErrors.length === 0, '全程零 pageerror(' + pageErrors.slice(0, 3).join(' | ') + ')');

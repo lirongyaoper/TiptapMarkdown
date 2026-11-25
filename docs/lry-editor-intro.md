@@ -16,7 +16,7 @@
 
 - **打开无损**：`<font color/face/size>`、`_src` 占位图、`edui-*` 装饰类、`anchorname` 锚点、`td>p` 包裹等 UEditor 历史格式自动归一化，roundtrip 语义零丢失；
 - **输出同形**：产出 HTML 保持 UEditor 契约（表格内不嵌裸 `<p>`、`<thead>` 重建、`float` 图文环绕、`<pre class="brush:js;toolbar:false;">` 代码块），**前端模板一行不用改**；
-- **工具栏同词汇**：89 按钮全量工具栏对齐 UEditor 词汇表（`simpleupload`、`insertimage`、`wordimage`、`insertcode`…），老用户零学习成本；
+- **工具栏同词汇**：90 按钮全量工具栏对齐 UEditor 词汇表（`simpleupload`、`insertimage`、`wordimage`、`insertcode`…），老用户零学习成本；
 - **API 同形**：`getContent() / setContent() / on('contentChange')`，老页面的编辑器调用脚本只需换一个全局对象名；
 - **Markdown 粘贴识别**直接从 `ueditor.all.js` 移植（评分逻辑零改动），粘贴行为与老编辑器一致。
 
@@ -61,10 +61,10 @@ LRYEditor.setAdapter({
 
 | | full 版 | lite 版 |
 |---|---|---|
-| 体积 | 623KB 单文件 | **413KB（gzip 132KB）** |
+| 体积 | 891KB 单文件 | **433KB（gzip 138KB）** |
 | 全局对象 | `LRYEditor` | `LRYEditorLite` |
 | 定位 | 内容生产主编辑器 | 留言/评论/回复 |
-| 能力 | 全部（画板/分栏/AI/表格…） | 纯文字排版（13 按钮） |
+| 能力 | 全部（可视化自由画板/公式/Markdown/分栏/AI/表格…） | 纯文字排版（15 按钮） |
 | API | 完全同形 | 完全同形 |
 
 lite 版刻意做减法：无图片、无表格、无画板、无 AI，**攻击面越小越安全**——服务端只需一个窄白名单过滤器；入口自带输入清洗（剥 `script`/`on*`/`javascript:`）。字数上限超限硬阻断，自带计数条。
@@ -88,13 +88,14 @@ lite 版刻意做减法：无图片、无表格、无画板、无 AI，**攻击�
 ## 二、功能全景
 
 **编辑能力**
-- 89 按钮全量工具栏，PC 全显 / 移动端 3 行自适应 +「更多」
-- 自动大纲与标题折叠、格式刷、查找替换、全屏、多主题代码高亮（行号/语言标签/一键复制）
+- 90 按钮全量工具栏，PC 全显 / 移动端 3 行自适应 +「更多」
+- 可视化自由画板：流程图 / 思维导图 / UML 类图拖拽编辑，多选、框选、自由元素、剪贴板、PNG/SVG 导出
+- KaTeX 公式实时预览与编辑、自动大纲与标题折叠、格式刷、查找替换、全屏、多主题代码高亮（行号/语言标签/一键复制）
 - LaTeX 公式（KaTeX 懒加载）、四色高亮块、状态卡、文件卡
 
 **语雀式块操作**
 - 行柄「+」菜单：**31 项行操作**（H1-H6/高亮/引用/列表/任务/代码/折叠/画板/公式/缩进…）
-- 斜杠面板：空行 `/` 唤起，**6 组 47 张卡片**
+- 斜杠面板：空行 `/` 唤起，**6 组 51 张卡片**
 - 折叠块、多栏布局、任务列表
 
 **Markdown 双向分栏**
@@ -142,12 +143,12 @@ npm 场景：`import { LRYEditorAPI } from 'lry-editor'`（ESM 源码直出）�
 |---|---|
 | 内核 | TipTap v3（ProseMirror） |
 | 语言 | 纯 ESM JavaScript，无框架依赖（Vue/React 可用包装） |
-| 发行 | full 623KB / lite 413KB（gzip 132KB）单文件 IIFE + npm ESM |
+| 发行 | full 891KB / lite 433KB（gzip 138KB）单文件 IIFE + npm ESM；独立画板布局层 22KB |
 | 构建 | Vite 6 库模式，target es2018（现代浏览器） |
-| 运行时懒加载 | showdown（Markdown）/ mermaid（画板）/ katex（公式），按需加载不占首屏 |
-| 后端契约 | 适配器（upload / list / catch / ai），详见 docs/adapter.md |
-| 安全 | 入口输入清洗 + 存储契约语义化；建议服务端白名单过滤（纵深防御） |
-| 测试 | jsdom 冒烟 18 项断言（`npm run test`） |
+| 运行时懒加载 | showdown（Markdown）/ mermaid（画板）/ katex（公式）/ highlight（代码高亮），按需加载不占首屏 |
+| 后端契约 | 适配器（upload / uploadChunk / list / catch / ai），详见 docs/adapter.md |
+| 安全 | 入口输入清洗 + 存储契约语义化 + 画板布局颜色/图片协议校验；建议服务端白名单过滤（纵深防御） |
+| 测试 | jsdom 100 项 + 真实 Chromium 33 项 |
 | 协议 | MIT |
 
 ---

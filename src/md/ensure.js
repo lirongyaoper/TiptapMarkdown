@@ -65,8 +65,9 @@ export function safeHtmlToMd(html) {
  */
 export function normalizeYuqueHtml(html) {
   let out = String(html)
-    .replace(/<pre>\s*<code class="[^"]*mermaid[^"]*">([\s\S]*?)<\/code>\s*<\/pre>/gi, (m, c) => '<pre class="lry-mermaid">' + c + '</pre>')
-    .replace(/<pre class="[^"]*(?:brush:mermaid|language-mermaid|\bmermaid)[^"]*">([\s\S]*?)<\/pre>/gi, '<pre class="lry-mermaid">$1</pre>');
+    /* 围栏代码块的末尾自带一个换行:它不是图源的一部分,去掉,粘贴进来的源码才逐字进入画板 */
+    .replace(/<pre>\s*<code class="[^"]*mermaid[^"]*">([\s\S]*?)<\/code>\s*<\/pre>/gi, (m, c) => '<pre class="lry-mermaid">' + c.replace(/\s+$/, '') + '</pre>')
+    .replace(/<pre class="[^"]*(?:brush:mermaid|language-mermaid|\bmermaid)[^"]*">([\s\S]*?)<\/pre>/gi, (m, c) => '<pre class="lry-mermaid">' + c.replace(/\s+$/, '') + '</pre>');
   out = out.replace(/<li\b[^>]*class="[^"]*task-list-item[^"]*"[^>]*>([\s\S]*?)<\/li>/gi, (m, inner) => {
     const dm = /^\s*([\u2611\u2610☑☐])\s*/.exec(inner);
     const done = !!(dm && (dm[1] === '\u2611' || dm[1] === '☑'));

@@ -13,7 +13,7 @@ const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 const doc = w.document;
 
 ok(!!w.LRYEditor && !!w.LRYEditor.create, 'global create');
-ok(w.LRYEditor.VERSION === '1.2.1', 'version 1.2.1 (got ' + w.LRYEditor.VERSION + ')');
+ok(w.LRYEditor.VERSION === '1.4.1', 'version 1.4.1 (got ' + w.LRYEditor.VERSION + ')');
 const inst = w.LRYEditor.create({ mount: doc.querySelector('#h'), textarea: 't', value: '<p>hello</p><ul class="lry-task"><li class="lry-task-item lry-task-done"><span class="lry-task-check">☑</span><div class="lry-task-body"><p>done</p></div></li></ul>', wordCount: false });
 ok(inst.getContent().includes('hello') && inst.getContent().includes('lry-task-done'), 'contract roundtrip');
 ok(inst.getContent().includes('task-done'), 'task done attr');
@@ -47,6 +47,54 @@ ok(typeof w.LRYEditor.setAdapter === 'function' && typeof w.LRYEditor.createUrlA
     globalThis.fetch = async (url) => { seen.push({ url }); return { json: async () => ({ status: 1, data: { list: [], total: 0 } }) }; };
     await mk({ base: '/index.php?m=attachment&c=lryeditor', listUrl: '/index.php?m=attachment&c=lryeditor&a=lists' }).list(1, 0);
     ok(seen[1].url === '/index.php?m=attachment&c=lryeditor&a=lists&filetype=1&start=0', 'url 适配器: 在线管理端点(' + seen[1].url + ')');
+    /* REST 基址同样要正确拼接 action 与查询串 */
+    globalThis.fetch = async (url) => { seen.push({ url }); return { ok: true, json: async () => ({ status: 1, data: { url: '/up/rest.png' } }) }; };
+    await mk({ base: '/api/editor' }).upload(new File(['x'], 'rest.png', { type: 'image/png' }));
+    ok(seen[seen.length - 1].url === '/api/editor/upload', 'url 适配器:REST 上传端点(' + seen[seen.length - 1].url + ')');
+    await mk({ base: '/api/editor' }).list(1, 0);
+    ok(seen[seen.length - 1].url === '/api/editor/list?filetype=1&start=0', 'url 适配器:REST 列表查询串(' + seen[seen.length - 1].url + ')');
+    /* SSE:跨网络包的同一条 data 帧要等半包拼齐后再解析,两类 delta 都要回调 */
+    const encoder = new TextEncoder();
+    const aiChunks = [
+      'data: {"choices":[{"delta":{"content":"你"}}]}\n',
+      'data: {"type":"da',
+      'ta","data":"好"}\n',
+      'data: [DONE]\n'
+    ].map((s) => encoder.encode(s));
+    let aiIndex = 0;
+    globalThis.fetch = async () => ({
+      ok: true, status: 200,
+      body: { getReader: () => ({ read: async () => aiIndex < aiChunks.length ? { done: false, value: aiChunks[aiIndex++] } : { done: true } }) }
+    });
+    const aiDeltas = [];
+    const aiText = await mk({ aiUrl: '/api/ai' }).ai([{ role: 'user', content: 'hi' }], { onDelta: (d) => aiDeltas.push(d) });
+    ok(aiText === '你好' && aiDeltas.join('') === '你好', 'url 适配器:AI SSE 半包解析与两类 delta(' + aiText + ')');
+    /* 外部 AbortSignal 必须透传到 fetch */
+    let abortSeen = false;
+    globalThis.fetch = async (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+    const abortCtrl = new AbortController();
+    const abortedRequest = mk({ aiUrl: '/api/ai' }).ai([], { signal: abortCtrl.signal });
+    abortCtrl.abort();
+    try { await abortedRequest; } catch (e) { abortSeen = /aborted/.test(e.message); }
+    ok(abortSeen, 'url 适配器:AI 请求支持外部取消');
+    /* 分片 init/part/finish:单片失败重试,进度按已完成分片推进 */
+    const chunkCalls = [], chunkProgress = [];
+    let failedPart = false;
+    globalThis.fetch = async (url, init) => {
+      const op = init.body.get('op');
+      chunkCalls.push({ url, op, index: init.body.get('index'), csrf: init.body.get('lry_csrf_token') });
+      if (op === 'init') return { ok: true, json: async () => ({ status: 1, data: { upload_id: 'u1', chunk_size: 3, chunk_total: 2 } }) };
+      if (op === 'finish') return { ok: true, json: async () => ({ status: 1, data: { url: '/up/chunk.bin' } }) };
+      if (!failedPart) { failedPart = true; return { ok: true, json: async () => ({ status: 0, message: '临时失败' }) }; }
+      return { ok: true, json: async () => ({ status: 1, data: {} }) };
+    };
+    const chunkResult = await mk({ base: '/api/editor', chunked: true, csrfToken: 'tok', retryDelay: 0 })
+      .uploadChunk(new File(['abcdef'], 'a.bin'), { filetype: 2, module: 'forum', onProgress: (p) => chunkProgress.push(p) });
+    ok(chunkResult.url === '/up/chunk.bin' && chunkProgress.join(',') === '50,100', 'url 适配器:分片上传完成与进度(' + chunkProgress.join(',') + ')');
+    ok(chunkCalls.length === 5 && chunkCalls[0].op === 'init' && chunkCalls.filter((c) => c.op === null).length === 3 && chunkCalls[chunkCalls.length - 1].op === 'finish'
+      && chunkCalls.every((c) => c.url === '/api/editor/upload_chunk' && c.csrf === 'tok'), 'url 适配器:分片重试与 finish 协议');
   } finally { globalThis.fetch = realFetch; }
   /* 无 FileReader 的环境(Node / SSR):图转存走 Buffer 兜底 */
   if (typeof globalThis.FileReader === 'undefined') {
@@ -89,6 +137,26 @@ const drop = async (inst2, files) => {
 };
 const I = w.LRYEditor._internals;
 ok(!!I, 'window.LRYEditor._internals(纯逻辑测试钩子)');
+
+/* 独立画板布局层:与编辑器共用同一份序列化,emoji/尖括号不会破坏 HTML 或 utf8 存储 */
+w.eval(fs.readFileSync(new URL('../dist/lry-diagram-layout.js', import.meta.url), 'utf8'));
+const DL = w.LryDiagramLayout;
+ok(!!DL && DL.LAYOUT_VERSION === 1, '画板布局层独立构建可用');
+const diagramSrc = 'graph TD\n  A-->B';
+const diagramLayout = { v: 1, n: { A: [12.345, 20] }, items: [{ id: 's1', k: 'sticker', x: 3, y: 4, s: 40, t: '😀<&' }] };
+const diagramEncoded = DL.attachLayout(diagramSrc, diagramLayout);
+ok(DL.stripLayout(diagramEncoded) === diagramSrc && !!DL.parseLayout(diagramEncoded).n.A, '画板布局:写入图源并可解析');
+const diagramJsonLine = diagramEncoded.split('\n').pop();
+ok(!/😀|<|>/.test(diagramJsonLine) && DL.parseLayout(diagramEncoded).items[0].t === '😀<&', '画板布局:四字节字符与 HTML 尖括号转义后无损还原');
+ok(DL.attachLayout(diagramSrc + '\r\n%% lry-layout v1\r\n%% {"v":1}', DL.emptyLayout()) === diagramSrc, '画板布局:空布局移除旧块并保留原源码');
+const hostileSvg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+DL.renderItems(hostileSvg, { byKey: {} }, [
+  { id: 't', k: 'text', t: '安全文字', c: 'red;background-image:url(https://evil.example/x)' },
+  { id: 's', k: 'shape', fc: 'url(https://evil.example/x)', sc: '#123456' },
+  { id: 'i', k: 'image', src: 'javascript:alert(1)' }
+]);
+const hostileMarkup = hostileSvg.outerHTML;
+ok(!/background-image|javascript:|evil\.example/.test(hostileMarkup) && /color:\s*(?:#1f2329|rgb\(31, 35, 41\))/.test(hostileMarkup) && /fill="#ffffff"/.test(hostileMarkup), '画板布局:恶意颜色与图片协议被过滤');
 
 /* 拖入图片与视频:走该实例的 adapter */
 await drop(P, [new w.File(['i'], 'd.png', { type: 'image/png' }), new w.File(['v'], 'd.mp4', { type: 'video/mp4' })]);
@@ -145,6 +213,51 @@ ok(/<h2>标题<\/h2>/.test(P.getContent()) && /<ul>/.test(P.getContent()) && /&l
 const beforeDiv = (P.getContent().match(/<div/g) || []).length;
 await I.insertAiResult(P, 'const a = "<div>";');
 ok(/&lt;div&gt;/.test(P.getContent()) && (P.getContent().match(/<div/g) || []).length === beforeDiv, 'AI 纯文本结果按文本插入,不把 <div> 吞成真标签');
+await I.insertAiResult(P, '%%{init: {"theme":"base"}}%%\ngraph TD\n  A-->B');
+ok(/<pre class="lry-mermaid">%%\{init:/.test(P.getContent()) && /A--&gt;B/.test(P.getContent()), 'AI 结果:跳过 Mermaid 前置指令仍识别为画板');
+
+/* 公式解析/原位编辑/形态切换/文末落位与折叠块开合 */
+const M = w.LRYEditor.create({ mount: host, textarea: 'math', value: '<p>前 \\(x\\) 后</p><p class="lry-math lry-math-block">\\[y\\]</p><p></p>', wordCount: false });
+let inlineMathPos = -1, blockMathPos = -1;
+M.editor.state.doc.descendants((n, p) => {
+  if (n.type.name === 'lryMathInline' && inlineMathPos < 0) inlineMathPos = p;
+  if (n.type.name === 'lryMathBlock' && blockMathPos < 0) blockMathPos = p;
+});
+ok(inlineMathPos >= 0 && blockMathPos >= 0 && /<span class="lry-math">\\\(x\\\)<\/span>/.test(M.getContent()), '公式:裸定界符归一为可编辑节点');
+M.editor.chain().setNodeSelection(blockMathPos).run();
+ok(!!I.selectedMath(M.editor) && I.resolveContext(M.editor).type === 'math' && I.contextTools(M, I.resolveContext(M.editor)).length >= 5, '公式:节点选区命中公式上下文条');
+ok(I.setMathForm(M.editor, false) && !/<p class="lry-math lry-math-block"/.test(M.getContent()), '公式:块级切换为行内并保持节点选中');
+M.editor.commands.setContent('<p>正文</p>');
+M.editor.chain().focus('end').run();
+const insertedMathPos = I.applyMath(M.editor, 'E=mc^2', true, null, null);
+ok(insertedMathPos !== null && /<p class="lry-math lry-math-block">\\\[E=mc\^2\\\]<\/p><p><\/p>$/.test(M.getContent())
+  && M.editor.state.selection.$from.parent.type.name === 'paragraph', '公式:文末块级公式后自动补可写段落');
+const Fold = w.LRYEditor.create({ mount: host, textarea: 'fold', value: '<div class="lry-fold"><div class="lry-fold-head">标题</div><div class="lry-fold-body"><p>正文</p></div></div>', wordCount: false });
+let foldTextPos = -1;
+Fold.editor.state.doc.descendants((n, p) => { if (n.isText && n.text === '正文') foldTextPos = p; });
+Fold.editor.chain().setTextSelection(foldTextPos).run();
+Fold.editor.commands.toggleFold();
+ok(/lry-fold-close/.test(Fold.getContent()), '折叠块:正文内可切换为收起');
+Fold.editor.commands.toggleFold();
+ok(!/lry-fold-close/.test(Fold.getContent()), '折叠块:标题内可再次展开');
+const Dg = w.LRYEditor.create({ mount: host, textarea: 'diagram', value: '<pre class="lry-mermaid">graph TD\n  A--&gt;B</pre>', wordCount: false });
+ok(!!Dg.wrapper.querySelector('.lry-diagram') && !!Dg.wrapper.querySelector('.lry-diagram-tabs') && Dg.getContent() === '<pre class="lry-mermaid">graph TD\n  A--&gt;B</pre>', '画板:可视化编辑 DOM 接入且存储契约不变');
+/* Markdown 容器可嵌套,折叠/分栏/画板导出再导入不丢外壳 */
+const mdCore = await import('../src/md-core/index.js');
+const { normalizeYuqueHtml } = await import('../src/md/ensure.js');
+const prevDocument = globalThis.document, prevWindow = globalThis.window, prevShowdown = globalThis.showdown;
+globalThis.document = doc; globalThis.window = w; globalThis.showdown = w.showdown;
+try {
+  const nestedMd = ':::fold 标题\n:::cols 2\n:::col\n```mermaid\ngraph TD\n  A-->B\n```\n:::\n:::col\n- 列表项\n:::\n:::\n:::';
+  const nestedHtml = normalizeYuqueHtml(mdCore.markdownToHtml(nestedMd, {}));
+  const nestedBack = mdCore.htmlToMarkdown(nestedHtml, { richFormat: true });
+  ok(/lry-fold/.test(nestedHtml) && /lry-cols/.test(nestedHtml) && /lry-mermaid/.test(nestedHtml), 'Markdown:嵌套折叠/分栏/画板导入');
+  ok(/:::fold 标题/.test(nestedBack) && /:::cols 2/.test(nestedBack) && /```mermaid/.test(nestedBack), 'Markdown:嵌套容器与画板类型导出保真');
+} finally {
+  if (prevDocument === undefined) delete globalThis.document; else globalThis.document = prevDocument;
+  if (prevWindow === undefined) delete globalThis.window; else globalThis.window = prevWindow;
+  if (prevShowdown === undefined) delete globalThis.showdown; else globalThis.showdown = prevShowdown;
+}
 
 /* =====================================================================
  * v1.2 功能(同步自站内版)
@@ -307,6 +420,13 @@ await tick(80);
 const hlReq = [...w2.document.querySelectorAll('script[src*="highlight/"]')].map((s) => s.getAttribute('src'));
 ok(hlReq.length === 1 && hlReq[0] === '/common/static/plugin/lry-editor/third-party/highlight/lry-code-themes.js',
   'CMS 形态: 高亮资源取自 LRY_EDITOR_BASE 指定的包根(平铺布局,无 dist/)→ ' + hlReq.join(','));
+cms2.setContent('<p>公式 <span class="lry-math">\\(x^2\\)</span></p><pre class="lry-mermaid">graph TD\n  A--&gt;B</pre>');
+await tick(30);
+const engineReq = [...w2.document.querySelectorAll('script[src]')].map((s) => s.getAttribute('src'));
+const katexCss = [...w2.document.querySelectorAll('link[data-lry-katex]')].map((s) => s.getAttribute('href'));
+ok(engineReq.includes('/common/static/plugin/lry-editor/third-party/katex/katex.min.js')
+  && engineReq.includes('/common/static/plugin/lry-editor/third-party/mermaid.min.js')
+  && katexCss[0] === '/common/static/plugin/lry-editor/third-party/katex/katex.min.css', 'CMS 形态:KaTeX/Mermaid 同样从 LRY_EDITOR_BASE 包根加载');
 cms2.destroy();
 dom2.window.close();
 ok(!doc.querySelector('textarea[name=content]') || doc.querySelector('textarea[name=content]') === taAfter, 'CMS 形态: destroy 后不残留');
@@ -314,7 +434,7 @@ ok(!doc.querySelector('textarea[name=content]') || doc.querySelector('textarea[n
 /* ---------- lry-editor-lite(留言/评论简约版,独立 IIFE bundle) ---------- */
 [...w.LRYEditor.instances.values()].forEach((x) => { try { x.destroy(); } catch (e) { /* ignore */ } });
 w.eval(fs.readFileSync(new URL('../dist/lry-editor-lite.js', import.meta.url), 'utf8'));
-ok(!!w.LRYEditorLite && w.LRYEditorLite.VERSION === '1.2.1', 'lite: global create / version 1.2.1');
+ok(!!w.LRYEditorLite && w.LRYEditorLite.VERSION === '1.4.1', 'lite: global create / version 1.4.1');
 const div = doc.createElement('div');
 div.id = 'lite_host';
 doc.body.appendChild(div);

@@ -4,7 +4,8 @@
 
 - **Markdown 双向分栏**:左侧源码(每行「+」行柄)/ 右侧所见即所得,防抖互转,退出零损失
 - **画板**:mermaid 流程图 / 思维导图 / 时序 / 甘特 / UML,编辑器内实时渲染
-- **语雀式块**:折叠块、多栏布局、任务列表、状态卡、文件卡、高亮块(四色)、代码块(**编辑态语法高亮** + 行号 + 语言下拉 + 复制)、LaTeX 公式
+- **可视化自由画板**:流程图 / 思维导图 / UML 类图可直接拖拽编辑,支持多选、框选、文字/图形/连线/贴纸/图片、右键菜单、复制粘贴、缩放与 PNG/SVG 导出;布局随图源保存,编辑与发布共用同一布局层
+- **语雀式块**:折叠块、多栏布局、任务列表、状态卡、文件卡、高亮块(四色)、代码块(**编辑态语法高亮** + 行号 + 语言下拉 + 复制)、LaTeX 公式(**KaTeX 实时预览与编辑**)
 - **预告下一行**:文末是代码块、表格、画板时,下方常显一行待写行(行首「+」),点一下接着写;代码块随时出得来(空行回车 / `Esc` / `↓`)
 - **行柄「+」菜单**:31 项行操作(H1-H6/高亮/引用/列表/任务/代码/折叠/复制/剪切/删除/缩进/画板/公式…)
 - **斜杠面板**:空行 `/` 唤起,6 组 51 张卡片
@@ -14,7 +15,7 @@
 - **工具栏**:90 按钮全量;PC 全显,移动端 3 行自适应 + 「更多」
 - **自动大纲/标题折叠、自动保存、格式刷、查找替换浮动条、全屏、导出(Markdown / 网页 / Word / 纯文本)、多主题代码高亮**
 
-> 留言/评论场景请看 **[lite 简约版](#lite-简约版留言评论)**:纯文字排版、432KB 单文件,API 与 full 版同形。
+> 留言/评论场景请看 **[lite 简约版](#lite-简约版留言评论)**:纯文字排版、433KB 单文件,API 与 full 版同形。
 
 ## 快速开始(零后端)
 
@@ -39,7 +40,7 @@ node demo/_serve.mjs        # → http://localhost:8123/demo/
 </script>
 ```
 
-> `dist/` 须与 `third-party/` 一同部署:showdown / mermaid / KaTeX / highlight.js 都在运行时按需加载,基址由上面 `<script src>` 的路径推断(`…/dist/` 的上一级)。目录结构不同时,在引入编辑器脚本前设置 `window.LRY_EDITOR_BASE = '/static/lry-editor/'`;代码高亮资源可单独用 `window.LRY_EDITOR_HIGHLIGHT_BASE` 覆写。
+> `dist/` 须与 `third-party/` 一同部署:showdown / mermaid / KaTeX / highlight.js 都在运行时按需加载,基址由上面 `<script src>` 的路径推断(`…/dist/` 的上一级)。目录结构不同时,在引入编辑器脚本前设置 `window.LRY_EDITOR_BASE = '/static/lry-editor/'`;代码高亮资源可单独用 `window.LRY_EDITOR_HIGHLIGHT_BASE` 覆写。发布端需要还原画板布局时,再按需加载 `dist/lry-diagram-layout.js`(全局 `window.LryDiagramLayout`)。
 
 默认 **memory 适配器**:图片存 dataURI(开箱即用)、AI 为演示 mock —— 适合 Demo 与评估。
 
@@ -107,11 +108,13 @@ LRYEditor.get('content')  // 按字段名取实例
 <pre class="brush:js;toolbar:false;">…</pre>                <!-- 代码块(theme:xxx 指定高亮主题) -->
 ```
 
+> 可视化画板的节点坐标与自由元素保存在图源末尾的 `%% lry-layout v1` 注释块中;Mermaid 会忽略它,普通 Markdown 工具仍按自动布局展示。发布端可用 `dist/lry-diagram-layout.js` 还原编辑器中的摆放。
+
 > 服务端做 HTML 白名单过滤时,须放行 `td/th` 上的 `colspan` / `rowspan` / `width` / `style` 与 `a[name]`(页内锚点)——否则合并单元格保存后被拆开、列宽与单元格背景色丢失、锚点失效。
 
-## lite 简约版(留言/评论)
+## lite 简约版(用于留言/评论等)
 
-面向**留言板、文章评论、帖子回复**等轻量输入场景的独立构建:`dist/lry-editor-lite.js`(**432KB / gzip 138KB**,full 版 682KB),全局对象 `window.LRYEditorLite`,与 full 版 **API 完全同形**(页面脚本零学习成本)。
+面向**留言板、文章评论、帖子回复**等轻量输入场景的独立构建:`dist/lry-editor-lite.js`(**433KB / gzip 138KB**,full 版 891KB),全局对象 `window.LRYEditorLite`,与 full 版 **API 完全同形**(页面脚本零学习成本)。
 
 - **纯文字排版**:加粗/斜体/下划线/删除线/行内代码 · 链接(Ctrl+K)/取消链接 · 引用/有序/无序列表 · 待办清单 · Unicode 表情 · 清除格式
 - **划词工具条**(6 钮):选中文本即在选区上方浮现格式条
@@ -142,7 +145,7 @@ npm 场景:`import { LRYEditorLiteAPI } from 'lry-editor/lite'`。演示页:[dem
 
 ```
 ├── src/            # ESM 源码(index.js 门面 + adapters.js 适配层;lite.js 简约版入口)
-├── dist/           # 构建产物(lry-editor.js / lry-editor-lite.js 单文件 IIFE + css)
+├── dist/           # 构建产物(lry-editor.js / lry-editor-lite.js 单文件 IIFE + css;lry-diagram-layout.js 独立布局层)
 ├── third-party/    # 运行时懒加载:showdown / mermaid / katex(均为 MIT)+ highlight(代码高亮,BSD-3)
 ├── demo/           # 零后端演示页(index.html 全功能 / lite.html 简约版)
 ├── test/           # os-test.mjs(jsdom)/ os-browser.mjs(真实 Chromium)
@@ -155,6 +158,7 @@ npm 场景:`import { LRYEditorLiteAPI } from 'lry-editor/lite'`。演示页:[dem
 npm install
 npm run build         # 产出 dist/lry-editor.js(full 版)
 npm run build:lite    # 产出 dist/lry-editor-lite.js(简约版)
+npm run build:diagram # 产出 dist/lry-diagram-layout.js(发布端共享布局层)
 npm run watch         # 增量构建(full 版;lite 用 watch:lite)
 npm test              # jsdom 回归(契约 / 适配器贯穿 / 各功能入口)
 npm run test:browser  # 真实浏览器回归(需本机 Chromium:读 CHROME_PATH,否则找 ~/.cache/ms-playwright)
@@ -162,7 +166,7 @@ npm run test:browser  # 真实浏览器回归(需本机 Chromium:读 CHROME_PATH
 
 ## 许可与署名
 
-- MIT。内嵌运行时库:showdown / mermaid / KaTeX 为 MIT,highlight.js 为 BSD-3-Clause(许可原文见 `third-party/highlight/LICENSE`);三方清单见 [LICENSE](LICENSE)。
+- MIT。内嵌运行时库:showdown / mermaid / KaTeX 为 MIT,highlight.js 为 BSD-3-Clause;许可证见 `third-party/mermaid.LICENSE`、`third-party/katex/LICENSE`、`third-party/highlight/LICENSE`,三方清单见 [LICENSE](LICENSE)。
 - **重要**：  如果你在与你相关的项目中使用该富文本插件，请你务必与我来信(contact@lirongyaoper.com)表示简单的感谢，以鼓励我继续本项目的更新及优化。
 
 ---

@@ -2,11 +2,12 @@
  * 上下文工具条(2026-11-23 v1.2.0)。
  *
  * 划词 bubble 管"文本选区格式",这里管"节点态":光标落在链接内 / 选中图片 /
- * 光标或单元格选区在表格内时,在锚点上方浮现对应操作条。单例条按上下文切换
+ * 选中公式 / 光标或单元格选区在表格内时,在锚点上方浮现对应操作条。单例条按上下文切换
  * 按钮组,三态天然互斥不叠层;readonly 态不装配。
  * - 链接条:点击链接或光标在链接内 → 网址 · 打开 · 编辑 · 复制 · 移除
  * - 图片条:对齐(默认/左浮/居中/右浮)· 宽度 25/50/75/100% · 说明 · 替换 · 删除;
  *   双击图片进入图片编辑对话框
+ * - 公式条(2026-11-24):编辑 · 行内/块级切换 · 删除;双击公式或选中后回车进入公式对话框
  * - 表格条:上/下插行 · 左/右插列 · 删行/删列 · 合并/拆分 · 表头行 · 背景色 · 对齐
  *
  * 定位取原生 getBoundingClientRect / coordsAtPos(fixed 坐标);无布局环境(jsdom)
@@ -20,6 +21,8 @@ import { DIALOGS, openImageDialog } from './dialogs.js';
 import { openColorPanel } from './color.js';
 import { setCellBackground } from './table-ops.js';
 import { uploadFile } from '../upload.js';
+import { MATH_TYPES } from './math-nodeview.js';
+import { openFormulaDialog, setMathForm } from './formula.js';
 
 /* ---------------- 判定(纯函数) ---------------- */
 
@@ -58,11 +61,21 @@ function tablePosOf($from) {
   return null;
 }
 
-/** 返回 { type:'image'|'link'|'table', ...锚点信息 } 或 null */
+/* 节点的 DOM 外壳 → 文档位置(双击图片/公式时反查) */
+function posOfNodeDom(ed, el) {
+  let pos = null;
+  ed.state.doc.descendants((n, p) => { if (pos === null && ed.view.nodeDOM(p) === el) pos = p; });
+  return pos;
+}
+
+/** 返回 { type:'image'|'math'|'link'|'table', ...锚点信息 } 或 null */
 export function resolveContext(ed) {
   const { selection } = ed.state;
   if (selection instanceof NodeSelection) {
-    return selection.node.type.name === 'image' ? { type: 'image', pos: selection.from } : null;
+    const name = selection.node.type.name;
+    if (name === 'image') return { type: 'image', pos: selection.from };
+    if (MATH_TYPES.indexOf(name) >= 0) return { type: 'math', pos: selection.from };
+    return null;
   }
   if (selection.empty) {
     const seg = linkSegmentAt(selection.$from);
@@ -197,6 +210,23 @@ function linkTools(inst, ctx) {
   ];
 }
 
+/* 公式条(2026-11-24):编辑 / 行内↔块级切换 / 删除。切换后保持节点选中,可连续操作 */
+function mathTools(inst) {
+  const ed = inst.editor;
+  const isBlock = () => {
+    const s = ed.state.selection;
+    return s instanceof NodeSelection && s.node.type.name === 'lryMathBlock';
+  };
+  return [
+    { icon: 'edit', title: '编辑公式 (双击或回车)', run: () => openFormulaDialog(inst) },
+    '|',
+    { label: '行内', title: '切换为行内公式', active: () => !isBlock(), run: () => setMathForm(ed, false) },
+    { label: '块级', title: '切换为块级公式', active: () => isBlock(), run: () => setMathForm(ed, true) },
+    '|',
+    { icon: 'trash', title: '删除公式', run: () => ed.chain().deleteSelection().run() }
+  ];
+}
+
 function inHeaderRow(state) {
   const { $from } = state.selection;
   const tp = tablePosOf($from);
@@ -260,6 +290,7 @@ function anchorRect(ed, ctx) {
 /** 按上下文取按钮组(工具条渲染与回归测试共用) */
 export function contextTools(inst, ctx) {
   if (ctx.type === 'image') return imageTools(inst);
+  if (ctx.type === 'math') return mathTools(inst);
   if (ctx.type === 'link') return linkTools(inst, ctx);
   return tableTools(inst);
 }
@@ -367,13 +398,19 @@ export function mountContextToolbar(inst) {
 
   const onDown = (e) => { clickedLink = !!(e.target.closest && e.target.closest('a[href]')); };
   const onDblClick = (e) => {
+    /* 公式:双击进入公式对话框(KaTeX 渲染后的内部结构任意一处双击均可) */
+    const math = e.target.closest && e.target.closest('.lry-math');
+    if (math && inst.options.readonly !== true && ed.view.dom.contains(math)) {
+      const pos = posOfNodeDom(ed, math);
+      if (pos !== null) { ed.chain().setNodeSelection(pos).run(); openFormulaDialog(inst); }
+      return;
+    }
     const img = e.target.closest && e.target.closest('img');
     if (!img || inst.options.readonly === true) return;
     const wrap = img.closest('.lry-imgwrap') || img;
     const dom = ed.view.dom;
     if (!dom.contains(wrap)) return;
-    let pos = null;
-    ed.state.doc.descendants((n, p) => { if (pos === null && n.type.name === 'image' && ed.view.nodeDOM(p) === wrap) pos = p; });
+    const pos = posOfNodeDom(ed, wrap);
     if (pos === null) return;
     ed.chain().setNodeSelection(pos).run();
     openImageDialog(inst, { edit: true });
@@ -396,6 +433,10 @@ export function mountContextToolbar(inst) {
     isImageSelected: () => {
       const c = resolveContext(ed);
       return !!(c && c.type === 'image' && ed.isFocused);
+    },
+    isMathSelected: () => {
+      const c = resolveContext(ed);
+      return !!(c && c.type === 'math' && ed.isFocused);
     }
   };
   return () => {

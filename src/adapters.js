@@ -88,7 +88,8 @@ export function createUrlAdapter(opts) {
     base: '/api/editor',
     csrfHeader: '', csrfToken: null,
     fileField: 'file', jsonPath: (r) => (r && r.data !== undefined ? r.data : r),
-    aiUrl: '', listUrl: '', catchUrl: ''
+    aiUrl: '', listUrl: '', catchUrl: '',
+    chunkUrl: '', chunked: false, timeout: 300000, retries: 3, retryDelay: 800
   }, opts || {});
   const headers = () => {
     const h = {};
@@ -98,69 +99,161 @@ export function createUrlAdapter(opts) {
     }
     return h;
   };
-  const post = async (url, form) => {
-    const resp = await fetch(url, { method: 'POST', headers: headers(), body: form, credentials: 'same-origin' });
+  const csrfValue = () => typeof o.csrfToken === 'function' ? o.csrfToken() : o.csrfToken;
+  const actionUrl = (base, action) => {
+    const raw = String(base || '');
+    if (!raw.includes('?')) return raw.replace(/\/+$/, '') + '/' + action;
+    const hashAt = raw.indexOf('#');
+    const path = raw.slice(0, hashAt >= 0 ? hashAt : raw.length).split('?')[0];
+    const hash = hashAt >= 0 ? raw.slice(hashAt) : '';
+    const url = new URL(raw, 'http://lry-editor.local');
+    url.searchParams.delete('a');
+    url.searchParams.set('a', action);
+    return path + url.search + hash;
+  };
+  const fetchWithTimeout = async (url, init, signal) => {
+    const ctrl = new AbortController();
+    const abort = () => ctrl.abort();
+    if (signal) {
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    }
+    const timer = o.timeout > 0 ? setTimeout(abort, o.timeout) : null;
+    try {
+      return await fetch(url, { ...init, signal: ctrl.signal });
+    } catch (e) {
+      if (ctrl.signal.aborted && !(signal && signal.aborted)) throw new Error('请求超时(' + o.timeout + 'ms),请检查网络后重试');
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', abort);
+    }
+  };
+  const requestJson = async (url, init, signal) => {
+    const resp = await fetchWithTimeout(url, {
+      headers: headers(), credentials: 'same-origin', ...init
+    }, signal);
+    if (resp.ok === false) throw new Error('HTTP ' + resp.status);
     const json = await resp.json();
-    if (json.status !== undefined && json.status !== 1) throw new Error(json.message || '服务端返回失败');
+    if (json && json.status !== undefined && json.status !== 1) throw new Error(json.message || json.msg || '服务端返回失败');
     return o.jsonPath(json);
   };
-  return {
+  const post = (url, form, signal) => requestJson(url, { method: 'POST', body: form }, signal);
+  const addCsrf = (form) => {
+    const token = csrfValue();
+    if (token) form.append('lry_csrf_token', token);
+    return form;
+  };
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const adapter = {
     name: 'url',
     async upload(file, onProgress, extra) {
-      const form = new FormData();
+      const form = addCsrf(new FormData());
       form.append(o.fileField, file);
-      /* extra 里只带可序列化的值:onProgress 是回调、module 可能未定义,都不该进表单 */
+      /* extra 里只带可序列化的值:回调、module 空值与 AbortSignal 都不进表单 */
       if (extra) Object.keys(extra).forEach((k) => {
         const v = extra[k];
-        if (typeof v !== 'function' && v !== undefined && v !== null) form.append(k, v);
+        if (k !== 'signal' && typeof v !== 'function' && v !== undefined && v !== null) form.append(k, v);
       });
-      if (o.csrfToken) form.append('lry_csrf_token', typeof o.csrfToken === 'function' ? o.csrfToken() : o.csrfToken);
-      return post(o.base.replace(/&a=\w+.*$/, '') + (o.base.includes('?') ? '&a=upload' : '/upload'), form);
+      return post(actionUrl(o.base, 'upload'), form, extra && extra.signal);
     },
-    async list(filetype, start) {
-      const url = (o.listUrl || o.base.replace(/&a=\w+.*$/, '') + (o.base.includes('?') ? '&a=list' : '/list')) + '&filetype=' + filetype + '&start=' + (start || 0);
-      const json = await (await fetch(url, { headers: headers(), credentials: 'same-origin' })).json();
-      return o.jsonPath(json);
+    async list(filetype, start, signal) {
+      const base = o.listUrl || actionUrl(o.base, 'list');
+      const sep = base.includes('?') ? '&' : '?';
+      return requestJson(base + sep + 'filetype=' + filetype + '&start=' + (start || 0), { method: 'GET' }, signal);
     },
-    async catch(sources) {
-      const form = new FormData();
+    async catch(sources, signal) {
+      const form = addCsrf(new FormData());
       sources.forEach((s) => form.append('source[]', s));
-      return post(o.catchUrl || o.base.replace(/&a=\w+.*$/, '') + (o.base.includes('?') ? '&a=catch' : '/catch'), form);
+      return post(o.catchUrl || actionUrl(o.base, 'catch'), form, signal);
     },
-    async ai(messages) {
+    async ai(messages, options) {
       if (!o.aiUrl) return memoryAdapter.ai(messages);
-      const resp = await fetch(o.aiUrl, {
+      const opts = options || {};
+      const resp = await fetchWithTimeout(o.aiUrl, {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json' }, headers()),
         credentials: 'same-origin',
         body: JSON.stringify({ messages, stream: true })
-      });
-      /* SSE 流式解析:逐行拼 delta,与官方 openai 兼容 */
+      }, opts.signal);
+      if (resp.ok === false || !resp.body) throw new Error('HTTP ' + resp.status);
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       let buf = '', out = '';
+      const consume = (raw) => {
+        const line = raw.trim();
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') return;
+        let obj;
+        try { obj = JSON.parse(payload); } catch (e) { return; /* 半包或非 JSON 帧 */ }
+        if (obj.type === 'error') throw new Error(obj.data || 'AI 服务错误');
+        const delta = (obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content)
+          || (obj.type === 'data' ? obj.data : null);
+        if (delta) {
+          out += delta;
+          if (opts.onDelta) opts.onDelta(delta);
+        }
+      };
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += dec.decode(value, { stream: true });
         let nl;
         while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).trim();
+          consume(buf.slice(0, nl));
           buf = buf.slice(nl + 1);
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (payload === '[DONE]') continue;
-          try {
-            const obj = JSON.parse(payload);
-            const d = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
-            if (obj.type === 'error') throw new Error(obj.data || 'AI 服务错误');
-            if (d) out += d;
-          } catch (pe) { if (pe instanceof SyntaxError) { /* 半包 */ } else throw pe; }
         }
       }
+      buf += dec.decode();
+      if (buf.trim()) consume(buf);
       return out;
     }
   };
+
+  /* 分片协议与主站 attachment/api 一致,但仅在显式配置 chunkUrl 或 chunked:true 时启用,
+     避免假设所有 /api/editor 后端都实现 init/part/finish。 */
+  if (o.chunkUrl || o.chunked) {
+    adapter.uploadChunk = async (file, options) => {
+      const opts = options || {};
+      const filetype = opts.filetype || 2;
+      const url = o.chunkUrl || actionUrl(o.base, 'upload_chunk');
+      const init = addCsrf(new FormData());
+      init.append('op', 'init');
+      init.append('filename', file.name);
+      init.append('filesize', file.size);
+      init.append('filetype', filetype);
+      if (opts.module) init.append('module', opts.module);
+      const started = await post(url, init, opts.signal);
+      const uploadId = started && started.upload_id;
+      const chunkSize = +(started && started.chunk_size) || 5 * 1024 * 1024;
+      const chunkTotal = +(started && started.chunk_total) || Math.ceil(file.size / chunkSize);
+      if (!uploadId || !chunkSize || !chunkTotal) throw new Error('分片初始化响应缺少 upload_id/chunk_size/chunk_total');
+      for (let i = 0; i < chunkTotal; i++) {
+        const part = addCsrf(new FormData());
+        part.append('upload_id', uploadId);
+        part.append('index', i);
+        part.append('file', file.slice(i * chunkSize, Math.min((i + 1) * chunkSize, file.size)), file.name + '.part' + i);
+        let lastErr = null;
+        for (let attempt = 0; attempt < o.retries; attempt++) {
+          try { await post(url, part, opts.signal); lastErr = null; break; }
+          catch (e) {
+            lastErr = e;
+            if (opts.signal && opts.signal.aborted) throw e;
+            if (attempt + 1 < o.retries) await wait(o.retryDelay * (attempt + 1));
+          }
+        }
+        if (lastErr) throw lastErr;
+        if (opts.onProgress) opts.onProgress(Math.round(((i + 1) / chunkTotal) * 100));
+      }
+      const finish = addCsrf(new FormData());
+      finish.append('op', 'finish');
+      finish.append('upload_id', uploadId);
+      return post(url, finish, opts.signal);
+    };
+  }
+  return adapter;
 }
 
 /* ---------- 实例适配器解析:create({adapter}) 或全局 setAdapter ---------- */
