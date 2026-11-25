@@ -94,7 +94,7 @@ try {
     diagramTools: document.querySelectorAll('.lry-editor .lry-diagram-dock-btn').length,
     diagramCanvas: !!(document.querySelector('.lry-editor .lry-diagram') || {}).__lryCanvas
   }));
-  ok(s.version === '1.4.1', 'full: 版本 1.4.1(' + s.version + ')');
+  ok(s.version === '1.4.3', 'full: 版本 1.4.3(' + s.version + ')');
   ok(s.buttons >= 80 && s.hasInst, 'full: 工具栏 ' + s.buttons + ' 钮,实例已建');
   ok(s.adapterGlobals === 'function/function', 'full: 适配器全局入口(setAdapter / createUrlAdapter)');
   ok(s.mermaid, 'third-party 基址推断:mermaid 已从包内 third-party/ 加载');
@@ -194,6 +194,29 @@ try {
   await page.evaluate(() => document.querySelectorAll('.lry-dialog-x').forEach((x) => x.click()));
   await sleep(200);
 
+  /* ---- Markdown 文件导入:浏览器 File + file input change 全链路 ---- */
+  await page.evaluate(() => {
+    const button = document.querySelector('.lry-editor [data-cmd="contentimport"]');
+    if (button) button.click();
+  });
+  await sleep(500);
+  const importOpened = await page.evaluate(() => {
+    const dialog = document.querySelector('.lry-dialog');
+    return !!dialog && !!dialog.querySelector('input[type="file"]') && !!dialog.querySelector('textarea');
+  });
+  ok(importOpened, 'Markdown 导入:工具栏按钮打开含文件选择和粘贴入口的对话框');
+  await page.evaluate(() => {
+    const input = document.querySelector('.lry-dialog input[type="file"]');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['# 浏览器导入\n\n**文件正文**\n\n- 项目甲\n- 项目乙'], 'browser-import.md', { type: 'text/markdown' }));
+    Object.defineProperty(input, 'files', { configurable: true, value: transfer.files });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForFunction(() => !document.querySelector('.lry-dialog') && window.__inst.getContent().includes('浏览器导入'), { timeout: 5000 });
+  const imported = await page.evaluate(() => ({ html: window.__inst.getContent(), dialog: !!document.querySelector('.lry-dialog') }));
+  ok(/<h1[^>]*>浏览器导入/.test(imported.html) && /<strong>文件正文<\/strong>/.test(imported.html) && /<li>项目甲<\/li>/.test(imported.html), 'Markdown 导入:浏览器 File 读取后标题、加粗与列表写入编辑器');
+  ok(!imported.dialog, 'Markdown 导入:成功后对话框关闭');
+
   /* ---- 预告下一行 / 回车跳出 ---- */
   await page.evaluate(() => { window.__inst.setContent('<p>段落文字</p><pre class="brush:js;toolbar:false;">const a = 1;</pre>'); });
   await sleep(300);
@@ -263,6 +286,18 @@ try {
   await sleep(800);
   const md = await page.evaluate(() => ({ mode: !!document.querySelector('.lry-editor.lry-md-mode'), showdown: !!window.showdown, src: (document.querySelector('.lry-md-src') || {}).value || '' }));
   ok(md.mode && md.showdown && /站内链接/.test(md.src), 'Markdown 分栏:showdown 从 third-party 加载,源码栏有内容');
+  await page.evaluate(() => { const ta = document.querySelector('.lry-md-src'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
+  await page.keyboard.type('焦点保持');
+  await sleep(500);
+  const mdTyped = await page.evaluate(() => ({ focused: document.activeElement === document.querySelector('.lry-md-src'), html: window.__inst.getContent() }));
+  ok(mdTyped.focused && mdTyped.html.includes('焦点保持'), 'Markdown 分栏:真实键盘输入同步预览后焦点留在源码栏');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await sleep(500);
+  const mdDeleted = await page.evaluate(() => ({ focused: document.activeElement === document.querySelector('.lry-md-src'), html: window.__inst.getContent() }));
+  ok(mdDeleted.focused && !mdDeleted.html.includes('焦点保持'), 'Markdown 分栏:真实键盘删除同步预览后焦点仍留在源码栏');
   await page.evaluate(() => { window.__inst.mdApi.toggle(); });
   await sleep(300);
 
@@ -278,7 +313,7 @@ try {
   await page.goto(base + '/demo/lite.html', { waitUntil: 'networkidle0' });
   await sleep(400);
   const lite = await page.evaluate(() => ({ version: window.LRYEditorLite.VERSION, buttons: document.querySelectorAll('.lry-lite .lry-tool-btn').length, has: !!document.querySelector('.lry-lite') }));
-  ok(lite.version === '1.4.1' && lite.has, 'lite: 版本 1.4.1,已挂载');
+  ok(lite.version === '1.4.3' && lite.has, 'lite: 版本 1.4.3,已挂载');
   ok(lite.buttons === 15, 'lite: 工具栏 15 钮(' + lite.buttons + ')');
 
   ok(pageErrors.length === 0, '全程零 pageerror(' + pageErrors.slice(0, 3).join(' | ') + ')');

@@ -81,7 +81,7 @@ import { svgForExport, isSvgImageTextUnsafe } from './diagram/export.js';
 import { TOOL_ICON, TOOLS } from './diagram/canvas-tools.js';
 import './styles/lry-editor.css';
 
-export const VERSION = '1.4.1';
+export const VERSION = '1.4.3';
 
 function pickEl(target, doc) {
   if (!target) return null;

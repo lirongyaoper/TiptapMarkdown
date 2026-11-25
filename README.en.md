@@ -2,7 +2,7 @@
 
 An open-source multi-document rich text editor — Tiptap core, Yuque-style experience, **zero backend assumptions**.
 
-- **Markdown dual-pane**: source on the left (per-line "+" gutter handle), WYSIWYG on the right, debounced two-way sync, lossless exit
+- **Markdown dual-pane**: source on the left (per-line "+" gutter handle), WYSIWYG on the right, debounced two-way sync without stealing focus, lossless exit, and direct `.md` / `.markdown` import
 - **Diagrams**: mermaid flowcharts / mindmaps / sequence / gantt / UML, rendered live in the editor
 - **Visual free canvas**: edit flowcharts, mindmaps and UML class diagrams directly; multi-select, marquee selection, text/shapes/connectors/stickers/images, context menus, clipboard, zoom and PNG/SVG export. Layout travels with the Mermaid source and shares one layout layer with the renderer
 - **Yuque-style blocks**: folding blocks, column layouts, task lists, status chips, file cards, 4-color callout cards, code blocks (**syntax highlighting while typing** + line numbers + language dropdown + copy), LaTeX math (**live KaTeX preview and editing**)

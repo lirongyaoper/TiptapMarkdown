@@ -255,6 +255,7 @@ const REG = {
   /* phase5 钩子(md/ai 由 md-core 就绪后接管) */
   markdown: { icon: 'markdown', title: 'Markdown 分栏', custom: (i) => (i.mdApi && i.mdApi.toggle) ? i.mdApi.toggle() : toast('Markdown 模块加载中') },
   ai: { icon: 'ai', title: 'AI 助手', custom: (i) => (i.aiApi && i.aiApi.open) ? i.aiApi.open() : toast('AI 面板加载中') },
+  contentimport: { icon: 'import', title: '导入 Markdown 文件', custom: (i) => (i.mdApi && i.mdApi.importDialog) ? i.mdApi.importDialog() : toast('Markdown 模块加载中') },
   /* 导出(2026-11-23):Markdown/网页/Word/纯文本;exportmd 保留给自定义工具栏配置 */
   export: { icon: 'exportmd', title: '导出', custom: (i, b) => openExportMenu(b, i) },
   exportmd: { icon: 'exportmd', title: '导出 Markdown', custom: (i) => (i.mdApi && i.mdApi.exportDialog) ? i.mdApi.exportDialog() : toast('导出模块加载中') }

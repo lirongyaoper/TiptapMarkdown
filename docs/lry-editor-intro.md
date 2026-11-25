@@ -148,7 +148,7 @@ npm 场景：`import { LRYEditorAPI } from 'lry-editor'`（ESM 源码直出）�
 | 运行时懒加载 | showdown（Markdown）/ mermaid（画板）/ katex（公式）/ highlight（代码高亮），按需加载不占首屏 |
 | 后端契约 | 适配器（upload / uploadChunk / list / catch / ai），详见 docs/adapter.md |
 | 安全 | 入口输入清洗 + 存储契约语义化 + 画板布局颜色/图片协议校验；建议服务端白名单过滤（纵深防御） |
-| 测试 | jsdom 100 项 + 真实 Chromium 33 项 |
+| 测试 | jsdom 118 项 + 真实 Chromium 38 项 |
 | 协议 | MIT |
 
 ---

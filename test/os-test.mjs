@@ -6,6 +6,8 @@ w.Range.prototype.getClientRects = () => [];
 w.Range.prototype.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
 w.Text.prototype.getBoundingClientRect = function () { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; };
 w.document.elementFromPoint = () => null;
+w.__toasts = [];
+w.layer = { msg: (message) => w.__toasts.push(String(message)) };
 w.eval(fs.readFileSync(new URL('../dist/lry-editor.js', import.meta.url), 'utf8'));
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.error('  FAIL ' + m); } };
@@ -13,7 +15,7 @@ const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 const doc = w.document;
 
 ok(!!w.LRYEditor && !!w.LRYEditor.create, 'global create');
-ok(w.LRYEditor.VERSION === '1.4.1', 'version 1.4.1 (got ' + w.LRYEditor.VERSION + ')');
+ok(w.LRYEditor.VERSION === '1.4.3', 'version 1.4.3 (got ' + w.LRYEditor.VERSION + ')');
 const inst = w.LRYEditor.create({ mount: doc.querySelector('#h'), textarea: 't', value: '<p>hello</p><ul class="lry-task"><li class="lry-task-item lry-task-done"><span class="lry-task-check">☑</span><div class="lry-task-body"><p>done</p></div></li></ul>', wordCount: false });
 ok(inst.getContent().includes('hello') && inst.getContent().includes('lry-task-done'), 'contract roundtrip');
 ok(inst.getContent().includes('task-done'), 'task done attr');
@@ -259,6 +261,75 @@ try {
   if (prevShowdown === undefined) delete globalThis.showdown; else globalThis.showdown = prevShowdown;
 }
 
+/* Markdown 文件导入:工具栏入口、格式校验、直接转换与原有粘贴入口 */
+const MI = w.LRYEditor.create({ mount: host, textarea: 'md_import', value: '<p>导入前内容</p>', wordCount: false });
+const importButton = MI.wrapper.querySelector('[data-cmd="contentimport"]');
+ok(!!importButton, 'Markdown 导入:工具栏显示文件导入按钮');
+const openImport = async () => {
+  importButton.click();
+  await tick(40);
+  return [...doc.querySelectorAll('.lry-dialog')].pop();
+};
+const chooseFile = async (input, name, content) => {
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    value: [new w.File([content], name, { type: 'text/markdown' })]
+  });
+  input.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await tick(100);
+};
+let importDialog = await openImport();
+let importInput = importDialog && importDialog.querySelector('input[type="file"]');
+ok(!!importInput, 'Markdown 导入:对话框包含文件选择控件');
+ok(!!importInput && /\.md/.test(importInput.accept) && /\.markdown/.test(importInput.accept), 'Markdown 导入:接受 .md/.markdown');
+const beforeImport = MI.getContent();
+await chooseFile(importInput, 'notes.txt', '# 不应导入');
+ok(MI.getContent() === beforeImport && !!doc.querySelector('.lry-dialog'), 'Markdown 导入:拒绝非 Markdown 文件且保留对话框');
+ok(w.__toasts.some((message) => /仅支持/.test(message)), 'Markdown 导入:非 Markdown 文件有明确提示');
+await chooseFile(importInput, 'empty.md', '  \n');
+ok(MI.getContent() === beforeImport && !!doc.querySelector('.lry-dialog'), 'Markdown 导入:拒绝空文件且内容不变');
+ok(w.__toasts.some((message) => /文件为空/.test(message)), 'Markdown 导入:空文件有明确提示');
+await chooseFile(importInput, 'guide.md', '# 文件标题\n\n**文件正文**\n\n- 项目甲\n- 项目乙');
+await tick(160);
+let importedHtml = MI.getContent();
+ok(/<h1[^>]*>文件标题/.test(importedHtml) && /<strong>文件正文<\/strong>/.test(importedHtml), 'Markdown 导入:.md 转换为标题和加粗');
+ok(/<li>项目甲<\/li>/.test(importedHtml) && /<li>项目乙<\/li>/.test(importedHtml), 'Markdown 导入:列表结构保留');
+ok(!doc.querySelector('.lry-dialog'), 'Markdown 导入:成功后关闭对话框');
+importDialog = await openImport();
+importInput = importDialog.querySelector('input[type="file"]');
+await chooseFile(importInput, 'README.MARKDOWN', '## 扩展名导入\n\n第二份内容');
+await tick(160);
+importedHtml = MI.getContent();
+ok(/<h2[^>]*>扩展名导入/.test(importedHtml) && importedHtml.includes('第二份内容'), 'Markdown 导入:大写 .MARKDOWN 可导入');
+importDialog = await openImport();
+const importText = importDialog.querySelector('textarea');
+importText.value = '### 粘贴导入\n\n**粘贴正文**\n\n```mermaid\ngraph TD\nA-->B\n```';
+importDialog.querySelector('.lry-dialog-foot .lry-btn-primary').click();
+await tick(160);
+importedHtml = MI.getContent();
+ok(/<h3[^>]*>粘贴导入/.test(importedHtml) && /<strong>粘贴正文<\/strong>/.test(importedHtml), 'Markdown 导入:原有粘贴入口仍可用');
+ok(/<pre class="lry-mermaid">graph TD\nA--&gt;B<\/pre>/.test(importedHtml), 'Markdown 导入:粘贴内容归一画板契约');
+ok(!doc.querySelector('.lry-dialog'), 'Markdown 导入:粘贴成功后关闭对话框');
+MI.destroy();
+
+/* Markdown 源码输入/删除后同步预览,焦点必须留在源码栏 */
+const MF = w.LRYEditor.create({ mount: host, textarea: 'md_focus', value: '<p>焦点验证</p>', wordCount: false });
+await MF.mdApi.toggle();
+await tick(80);
+const mdSource = doc.querySelector('.lry-md-src');
+mdSource.focus();
+mdSource.setRangeText('新增', mdSource.value.length, mdSource.value.length, 'end');
+mdSource.dispatchEvent(new w.Event('input'));
+await tick(400);
+ok(doc.activeElement === mdSource, 'Markdown 分栏:源码输入同步后焦点保留');
+ok(MF.getContent().includes('新增'), 'Markdown 分栏:源码输入仍同步到预览');
+mdSource.setRangeText('', mdSource.value.length - 2, mdSource.value.length, 'end');
+mdSource.dispatchEvent(new w.Event('input'));
+await tick(400);
+ok(doc.activeElement === mdSource, 'Markdown 分栏:源码删除同步后焦点保留');
+ok(!MF.getContent().includes('新增'), 'Markdown 分栏:源码删除仍同步到预览');
+MF.destroy();
+
 /* =====================================================================
  * v1.2 功能(同步自站内版)
  * ==================================================================== */
@@ -379,7 +450,10 @@ ok(!!doc.querySelector('#pre_host .lry-next-line') && typeof mini.findApi === 'o
 mini.destroy();
 const fullp = w.LRYEditor.create({ mount: '#pre_host', textarea: 'pre_content2', preset: 'full' });
 await tick();
-ok(fullp.toolbarConfig.flat().filter((x) => x !== '|').length === 90 && doc.querySelectorAll('#pre_host .lry-tool-btn').length === 90, 'preset full: 90 个命令全部渲染');
+const fullCommands = fullp.toolbarConfig.flat().filter((x) => x !== '|');
+const renderedFull = new Set([...doc.querySelectorAll('#pre_host .lry-tool-btn')].map((b) => b.getAttribute('data-cmd')).filter(Boolean));
+ok(fullCommands.length === 90 && fullCommands.every((command) => renderedFull.has(command)) && renderedFull.size === 90,
+  'preset full: 配置的 90 个命令全部渲染(缺:' + fullCommands.filter((command) => !renderedFull.has(command)).join(',') + ')');
 fullp.destroy();
 /* CMS 集成形态(以 YzmCMS 升级包的 form::editor() 为准):挂在既有隐藏 textarea 上、不带 textarea 选项;
    资源平铺在 plugin/lry-editor/(无 dist/),包根由 window.LRY_EDITOR_BASE 指定。
@@ -434,7 +508,7 @@ ok(!doc.querySelector('textarea[name=content]') || doc.querySelector('textarea[n
 /* ---------- lry-editor-lite(留言/评论简约版,独立 IIFE bundle) ---------- */
 [...w.LRYEditor.instances.values()].forEach((x) => { try { x.destroy(); } catch (e) { /* ignore */ } });
 w.eval(fs.readFileSync(new URL('../dist/lry-editor-lite.js', import.meta.url), 'utf8'));
-ok(!!w.LRYEditorLite && w.LRYEditorLite.VERSION === '1.4.1', 'lite: global create / version 1.4.1');
+ok(!!w.LRYEditorLite && w.LRYEditorLite.VERSION === '1.4.3', 'lite: global create / version 1.4.3');
 const div = doc.createElement('div');
 div.id = 'lite_host';
 doc.body.appendChild(div);

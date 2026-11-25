@@ -54,20 +54,23 @@ export async function insertMarkdownText(inst, text) {
   return true;
 }
 
+export async function readMarkdownFile(file) {
+  if (typeof file.text === 'function') return file.text();
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = () => reject(new Error('读取文件失败'));
+    r.readAsText(file);
+  });
+}
+
 /**
  * .md 文件导入(2026-11-23:编辑区拖入 .md/.markdown 文件):读文本 → 转换插入。
  */
 export async function importMarkdownFile(inst, file) {
   let text = '';
   try {
-    text = typeof file.text === 'function'
-      ? await file.text()
-      : await new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(String(r.result || ''));
-        r.onerror = () => reject(new Error('读取文件失败'));
-        r.readAsText(file);
-      });
+    text = await readMarkdownFile(file);
   } catch (e) {
     inst.editor.chain().insertContent(file.name).run();
     return false;

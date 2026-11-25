@@ -19,6 +19,7 @@ function normalizeMermaidHtml(html) {
 }
 import { DOMSerializer } from '@tiptap/pm/model';
 import { h, popover, closePopover, toast } from '../ui/dom.js';
+import { insertMarkdownText, readMarkdownFile } from './paste.js';
 
 const VIEW_KEY = 'lry-editor-md-view';
 
@@ -202,7 +203,7 @@ export function mountMarkdownMode(inst) {
     const mid = newBlocks.slice(p, newBlocks.length - s).join('');
     if (!mid && from === to) return;
     suppressPreviewSync = true;
-    ed.chain().focus().insertContentAt({ from, to }, mid || '<p></p>').run();
+    ed.chain().insertContentAt({ from, to }, mid || '<p></p>').run();
     suppressPreviewSync = false;
   }
   function posOfTopBlock(ed, idx) {
@@ -277,32 +278,61 @@ export function mountMarkdownMode(inst) {
   inst._mdFlush = flushMd;
 }
 
-/* ---------- 导入(粘贴/拖入 .md → 转换插入) ---------- */
+/* ---------- 导入(选择/拖入 .md → 转换插入) ---------- */
 export async function importMdDialog(inst) {
   const { dialog } = await import('../ui/dom.js');
   try { await ensureShowdown(); } catch (e) { toast('Markdown 组件不可用:' + e.message, 'error'); return; }
+  const fileInput = h('input', { type: 'file', class: 'lry-input', accept: '.md,.markdown,text/markdown' });
   const ta = document.createElement('textarea');
   ta.className = 'lry-input';
   ta.rows = 10;
   ta.placeholder = '粘贴 Markdown 文本…(也支持直接拖入 .md 文件)';
-  dialog({
+  const body = h('div', null,
+    h('label', { class: 'lry-field' },
+      h('span', { class: 'lry-field-label' }, 'Markdown 文件（.md / .markdown）'),
+      fileInput),
+    h('div', { class: 'lry-tip' }, '选择文件后将直接导入编辑器；也可以粘贴或拖入 Markdown 文本。'),
+    ta);
+  const api = dialog({
     title: '导入 Markdown', width: '620px',
-    body: ta,
+    body,
     okText: '转换插入',
     onOk(api) {
       const md = ta.value.trim();
-      if (!md) { toast('请先粘贴内容', 'error'); return false; }
+      if (!md) { toast('请先选择文件或粘贴内容', 'error'); return false; }
       const html = safeMdToHtml(md);
       if (html === null) { toast('转换失败,内容未插入', 'error'); return false; }
-      inst.editor.chain().focus().insertContent(html).run();
+      inst.editor.chain().focus().insertContent(normalizeYuqueHtml(html)).run();
+      api.close();
       toast('已插入', 'success');
     }
   });
-  ta.addEventListener('drop', (e) => {
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    if (!/\.(md|markdown)$/i.test(file.name || '')) {
+      toast('仅支持 .md 或 .markdown 文件', 'error');
+      return;
+    }
+    let md;
+    try {
+      md = await readMarkdownFile(file);
+    } catch (e) {
+      toast('读取 Markdown 文件失败:' + e.message, 'error');
+      return;
+    }
+    if (!md.trim()) { toast('Markdown 文件为空', 'error'); return; }
+    const converted = await insertMarkdownText(inst, md);
+    api.close();
+    inst.editor.chain().focus().run();
+    toast(converted ? 'Markdown 文件已导入' : 'Markdown 转换失败,已按原文插入', converted ? 'success' : 'error');
+  });
+  ta.addEventListener('drop', async (e) => {
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f && /\.md$/i.test(f.name)) {
+    if (f && /\.(md|markdown)$/i.test(f.name || '')) {
       e.preventDefault();
-      f.text().then((t) => { ta.value = t; });
+      try { ta.value = await readMarkdownFile(f); } catch (err) { toast('读取 Markdown 文件失败:' + err.message, 'error'); }
     }
   });
 }
